@@ -1,0 +1,12 @@
+# Binaries
+bin/
+cloud-aggregator
+*.exe
+
+# OS specific
+.DS_Store
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
