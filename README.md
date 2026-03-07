@@ -1,2 +1,4 @@
 # cloud-aggregator
-EN: Go/gnark cloud aggregator verifying edge ZKPs and performing MPC for privacy-preserving grids. | SR: Go/gnark cloud agregator koji verifikuje ZKP dokaze i vrši MPC agregaciju za pametne mreže.
+EN: This repository contains the Cloud backend (Aggregator) for a privacy-preserving smart meter infrastructure. Acting as the central node, it receives serialized Zero-Knowledge Proofs (Groth16) from edge devices, cryptographically verifies that consumption readings are within valid physical limits without revealing the actual values, and securely aggregates the data using Multi-Party Computation (MPC).
+
+SR: Ovaj repozitorijum sadrži Cloud backend (Agregator) za infrastrukturu pametnih brojila baziranu na zaštiti privatnosti potrošača. Kao centralni čvor, prima serijalizovane Zero-Knowledge dokaze (Groth16) sa Edge uređaja, kriptografski verifikuje da su očitavanja u granicama fizičkih limita bez otkrivanja stvarnih vrednosti, i bezbedno agregira podatke koristeći Multi-Party Computation (MPC).
