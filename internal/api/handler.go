@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/consensys/gnark/backend/groth16"
+	"github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator/internal/zkp"
 	"log"
 	"net/http"
 )
@@ -13,28 +15,31 @@ type ProofPayload struct {
 	Proof     []byte `json:"proof"`
 }
 
-func HandleProof(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("[DEBUG] Incoming request: Method=%s, URL=%s\n", r.Method, r.URL.Path)
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload ProofPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Printf("[ERROR] Failed to decode JSON from request: %v\n", err)
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-
-	defer func() {
-		if err := r.Body.Close(); err != nil {
-			log.Printf("[WARNING] Failed to close request body: %v\n", err)
+func HandleProof(vk groth16.VerifyingKey) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
 		}
-	}()
 
-	fmt.Printf("[API] Received ZKP proof from %s | Size: %d bytes | Time: %d\n",
-		payload.MeterID, len(payload.Proof), payload.Timestamp)
+		var payload ProofPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+		
+		const maxLimit uint64 = 10000
 
-	w.WriteHeader(http.StatusOK)
+		err := zkp.VerifyProof(payload.Proof, maxLimit, vk)
+		if err != nil {
+			log.Printf("[SECURITY ALERT] Invalid proof from %s: %v\n", payload.MeterID, err)
+			http.Error(w, "Cryptographic proof validation failed", http.StatusForbidden)
+			return
+		}
+		// ------------------------------------
+
+		fmt.Printf("[API] Validated ZKP from %s | Limit: %d\n", payload.MeterID, maxLimit)
+		w.WriteHeader(http.StatusOK)
+	}
 }
