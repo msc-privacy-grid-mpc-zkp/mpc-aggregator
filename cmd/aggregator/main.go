@@ -19,5 +19,6 @@ func main() {
 	fmt.Println("[SECURITY] ZKP Verifying Key loaded successfully!")
 
 	// 2. Startujemo server i prosleđujemo mu ključ
-	api.StartServer(":8080", vk)
+	store := api.NewMemoryStore(10)
+	api.StartServer(":8080", vk, store)
 }

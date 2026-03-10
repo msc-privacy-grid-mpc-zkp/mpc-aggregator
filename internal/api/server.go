@@ -7,8 +7,8 @@ import (
 	"net/http"
 )
 
-func StartServer(port string, vk groth16.VerifyingKey) {
-	http.HandleFunc("/api/proofs", HandleProof(vk))
+func StartServer(port string, vk groth16.VerifyingKey, store *MemoryStore) {
+	http.HandleFunc("/api/proofs", HandleProof(vk, store))
 
 	fmt.Printf("[SERVER] Listening on http://localhost%s\n", port)
 
