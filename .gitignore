@@ -2,7 +2,7 @@
 bin/
 cloud-aggregator
 *.exe
-*.keys
+*.key
 
 # OS specific
 .DS_Store
