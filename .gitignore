@@ -1,6 +1,7 @@
 # Binaries
 bin/
-/cloud-aggregator
+/cloud-aggregator.exe 
+/bin/
 *.exe
 
 # Keys
