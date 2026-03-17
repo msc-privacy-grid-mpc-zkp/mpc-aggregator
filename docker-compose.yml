@@ -22,6 +22,8 @@ services:
     build:
       context: ./mpc-engine
       dockerfile: Dockerfile
+      args:
+        NUM_METERS: ${NUM_METERS:-14}
     container_name: mpc-node-a
     environment:
       - NODE_ID=0
@@ -57,9 +59,12 @@ services:
     build:
       context: ./mpc-engine
       dockerfile: Dockerfile
+      args:
+        NUM_METERS: ${NUM_METERS:-14}
     container_name: mpc-node-b
     environment:
       - NODE_ID=1
+      - NUM_METERS=${NUM_METERS}
     volumes:
       - node_b_shm:/dev/shm/mp-spdz
     depends_on:
@@ -92,6 +97,8 @@ services:
     build:
       context: ./mpc-engine
       dockerfile: Dockerfile
+      args:
+        NUM_METERS: ${NUM_METERS:-14}
     container_name: mpc-node-c
     environment:
       - NODE_ID=2

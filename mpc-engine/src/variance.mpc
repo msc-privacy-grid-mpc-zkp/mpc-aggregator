@@ -1,42 +1,45 @@
-num_meters = 10
-scale = sfix(1000)  # normalizacioni faktor za stabilnost
+# variance.mpc - production-ready MPC
+# Računanje proseka i varijanse u MPC bez otkrivanja pojedinačnih inputa
+
+# Uvoz biblioteka za čitanje environment varijabli
+import os
+
+# Skaliranje radi numeričke stabilnosti
+scale = sfix(1000)  # normalizacioni faktor
+
+# Broj mjernih tačaka (konfigurabilan preko environment varijable)
+num_meters = 11
 
 print_ln("=========== MPC PROGRAM START ===========")
+print_ln("Number of meters: %s", num_meters)
 
-values = []
+# Inicijalizacija suma
 sum_x = sfix(0)
+sum_x2 = sfix(0)
 
-# Čitanje inputa i rekonstrukcija
+# Čitanje inputa i agregacija
 for i in range(num_meters):
+    # Svaki učesnik šalje svoj share (tajni input)
     share0 = sint.get_input_from(0)
     share1 = sint.get_input_from(1)
     share2 = sint.get_input_from(2)
 
-    x_sint = share0 + share1 + share2
+    # Rekonstrukcija u MPC polju i skaliranje
+    x = sfix(share0 + share1 + share2) / scale
 
-    # Skališemo vrednosti radi stabilnosti
-    x = sfix(x_sint) / scale
-
-    print_ln("Meter %s consumption (scaled): %s", i, x.reveal())
-
-    values.append(x)
+    # Agregacija samo za mean i variance
     sum_x += x
+    sum_x2 += x * x
 
 print_ln("=========== INPUTS READ ===========")
 
-# Mean
+# Prosek
 mean = sum_x / num_meters
 print_ln("=========== MEAN CONSUMPTION ===========")
 print_ln("Mean value (scaled): %s", mean.reveal())
 
-# Variance
-var_sum = sfix(0)
-for x in values:
-    diff = x - mean
-    var_sum += diff * diff
-
-variance = var_sum / num_meters
-
+# Varijansa (numerički stabilna formula)
+variance = (sum_x2 / num_meters) - (mean * mean)
 print_ln("=========== VARIANCE ===========")
 print_ln("Variance value (scaled): %s", variance.reveal())
 

@@ -38,7 +38,14 @@ RUN chmod +x ./entrypoint.sh
 
 RUN echo "Compiling new version..." && date
 
-# Kompajliranje MPC programa
-RUN ./compile.py -R 192 variance
+ARG NUM_METERS=14
+
+RUN echo "Compiling new version with NUM_METERS=$NUM_METERS..." && date
+
+RUN sed -i "s/num_meters = [0-9]*/num_meters = $NUM_METERS/g" ./Programs/Source/variance.mpc
+
+RUN grep "num_meters" ./Programs/Source/variance.mpc
+
+RUN ./compile.py -R 128 variance
 
 ENTRYPOINT ["./entrypoint.sh"]

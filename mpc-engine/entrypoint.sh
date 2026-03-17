@@ -31,7 +31,5 @@ while true; do
             rm "$INPUT_FILE"
             echo "✅ [$(date +%T)] Calculation finished. Waiting for next batch..."
     fi
-
-    # Spavamo 1 sekundu da ne "pojedemo" sav CPU resurs na proveru
     sleep 1
 done
