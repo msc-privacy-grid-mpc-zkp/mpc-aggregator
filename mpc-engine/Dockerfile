@@ -30,7 +30,7 @@ RUN echo "CXX = clang++" > CONFIG.mine && \
     echo "MY_LDLIBS = -L/usr/local/lib" >> CONFIG.mine
 
 # Kompajliranje mašine za prsten (replicated ring)
-RUN make -j8 replicated-ring-party.x
+RUN make -j8 malicious-rep-ring-party.x
 
 # Kopiranje izvornog koda i skripte
 COPY ./src/variance.mpc ./Programs/Source/

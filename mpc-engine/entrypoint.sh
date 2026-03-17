@@ -21,7 +21,7 @@ while true; do
 
             # DIREKTNI POZIV BINARNOG FAJLA
             # Redosled: <izvršni> <player_id> <ime_programa> [opcije]
-            ./replicated-ring-party.x "$MY_ID" variance -v \
+            ./malicious-rep-ring-party.x "$MY_ID" variance -v \
                 -h mpc-node-a -h mpc-node-b -h mpc-node-c \
                 -pn 5000 \
                 -IF /dev/shm/mp-spdz/Input \
