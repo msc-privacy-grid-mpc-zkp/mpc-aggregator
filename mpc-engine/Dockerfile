@@ -19,7 +19,8 @@ RUN git clone https://github.com/data61/MP-SPDZ.git .
 
 # 1. GENERISANJE SERTIFIKATA
 # Pravimo sertifikate za 3 igrača (Player 0, 1 i 2)
-RUN Scripts/setup-ssl.sh 3
+ARG NUM_PARTIES=3
+RUN Scripts/setup-ssl.sh $NUM_PARTIES
 
 # 2. CONFIGURACIJA
 # Dodajemo -DINSECURE u MY_CFLAGS da bismo izbegli "benchmarking functionality" grešku
@@ -38,7 +39,7 @@ RUN chmod +x ./entrypoint.sh
 
 RUN echo "Compiling new version..." && date
 
-ARG NUM_METERS=14
+ARG NUM_METERS=10
 
 RUN echo "Compiling new version with NUM_METERS=$NUM_METERS..." && date
 

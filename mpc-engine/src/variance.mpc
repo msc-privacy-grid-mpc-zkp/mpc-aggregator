@@ -8,10 +8,12 @@ import os
 scale = sfix(1000)  # normalizacioni faktor
 
 # Broj mjernih tačaka (konfigurabilan preko environment varijable)
-num_meters = 11
+num_meters = 10
+num_parties = 3
 
 print_ln("=========== MPC PROGRAM START ===========")
 print_ln("Number of meters: %s", num_meters)
+print_ln("Number of parties: %s", num_parties)
 
 # Inicijalizacija suma
 sum_x = sfix(0)
@@ -19,13 +21,15 @@ sum_x2 = sfix(0)
 
 # Čitanje inputa i agregacija
 for i in range(num_meters):
-    # Svaki učesnik šalje svoj share (tajni input)
-    share0 = sint.get_input_from(0)
-    share1 = sint.get_input_from(1)
-    share2 = sint.get_input_from(2)
+    # Inicijalizujemo sumu za trenutno brojilo
+    sum_shares = sint(0)
+    
+    # Dinamički prolazimo kroz sve učesnike (0, 1, 2... do num_parties-1)
+    for p in range(num_parties):
+        sum_shares += sint.get_input_from(p)
 
     # Rekonstrukcija u MPC polju i skaliranje
-    x = sfix(share0 + share1 + share2) / scale
+    x = sfix(sum_shares) / scale
 
     # Agregacija samo za mean i variance
     sum_x += x

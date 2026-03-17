@@ -23,7 +23,8 @@ services:
       context: ./mpc-engine
       dockerfile: Dockerfile
       args:
-        NUM_METERS: ${NUM_METERS:-14}
+        NUM_METERS: ${NUM_METERS:-10}
+        NUM_PARTIES: ${NUM_PARTIES:-3}
     container_name: mpc-node-a
     environment:
       - NODE_ID=0
@@ -60,7 +61,8 @@ services:
       context: ./mpc-engine
       dockerfile: Dockerfile
       args:
-        NUM_METERS: ${NUM_METERS:-14}
+        NUM_METERS: ${NUM_METERS:-10}
+        NUM_PARTIES: ${NUM_PARTIES:-3}
     container_name: mpc-node-b
     environment:
       - NODE_ID=1
@@ -98,7 +100,8 @@ services:
       context: ./mpc-engine
       dockerfile: Dockerfile
       args:
-        NUM_METERS: ${NUM_METERS:-14}
+        NUM_METERS: ${NUM_METERS:-10}
+        NUM_PARTIES: ${NUM_PARTIES:-3}
     container_name: mpc-node-c
     environment:
       - NODE_ID=2
@@ -118,7 +121,6 @@ networks:
     driver: bridge
 
 volumes:
-  # tmpfs obezbeđuje da podaci žive u RAM memoriji, a ne na disku
   node_a_shm:
     driver_opts:
       type: tmpfs
