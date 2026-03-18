@@ -6,6 +6,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
+	"log"
 	"os"
 )
 
@@ -34,18 +35,23 @@ func VerifyProof(proofBytes []byte, maxLimit uint64, verifyingKey groth16.Verify
 }
 
 func LoadVerifyingKey(filepath string) (groth16.VerifyingKey, error) {
-	vk := groth16.NewVerifyingKey(ecc.BN254)
+	verifyingKey := groth16.NewVerifyingKey(ecc.BN254)
 
 	f, err := os.Open(filepath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open vk file: %w", err)
+		return nil, fmt.Errorf("failed to open verifying key file: %w", err)
 	}
-	defer f.Close()
 
-	_, err = vk.ReadFrom(f)
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			log.Printf("[WARNING] Failed to close verifying key file '%s': %v\n", filepath, closeErr)
+		}
+	}()
+
+	_, err = verifyingKey.ReadFrom(f)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read vk data: %w", err)
+		return nil, fmt.Errorf("failed to read verifying key data: %w", err)
 	}
 
-	return vk, nil
+	return verifyingKey, nil
 }

@@ -1,0 +1,50 @@
+# variance.mpc - production-ready MPC
+# Računanje proseka i varijanse u MPC bez otkrivanja pojedinačnih inputa
+
+# Uvoz biblioteka za čitanje environment varijabli
+import os
+
+# Skaliranje radi numeričke stabilnosti
+scale = sfix(1000)  # normalizacioni faktor
+
+# Broj mjernih tačaka (konfigurabilan preko environment varijable)
+num_meters = 10
+num_parties = 3
+
+print_ln("=========== MPC PROGRAM START ===========")
+print_ln("Number of meters: %s", num_meters)
+print_ln("Number of parties: %s", num_parties)
+
+# Inicijalizacija suma
+sum_x = sfix(0)
+sum_x2 = sfix(0)
+
+# Čitanje inputa i agregacija
+for i in range(num_meters):
+    # Inicijalizujemo sumu za trenutno brojilo
+    sum_shares = sint(0)
+    
+    # Dinamički prolazimo kroz sve učesnike (0, 1, 2... do num_parties-1)
+    for p in range(num_parties):
+        sum_shares += sint.get_input_from(p)
+
+    # Rekonstrukcija u MPC polju i skaliranje
+    x = sfix(sum_shares) / scale
+
+    # Agregacija samo za mean i variance
+    sum_x += x
+    sum_x2 += x * x
+
+print_ln("=========== INPUTS READ ===========")
+
+# Prosek
+mean = sum_x / num_meters
+print_ln("=========== MEAN CONSUMPTION ===========")
+print_ln("Mean value (scaled): %s", mean.reveal())
+
+# Varijansa (numerički stabilna formula)
+variance = (sum_x2 / num_meters) - (mean * mean)
+print_ln("=========== VARIANCE ===========")
+print_ln("Variance value (scaled): %s", variance.reveal())
+
+print_ln("=========== MPC PROGRAM END ===========")

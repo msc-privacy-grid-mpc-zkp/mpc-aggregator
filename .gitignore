@@ -1,7 +1,12 @@
 # Binaries
 bin/
-cloud-aggregator
+/cloud-aggregator.exe 
+/bin/
 *.exe
+
+# Keys
+keys/
+*.key
 
 # OS specific
 .DS_Store

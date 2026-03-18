@@ -1,0 +1,42 @@
+services:
+  server-a:
+    image: cloud-aggregator:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - type: tmpfs
+        target: /dev/shm/mp-spdz
+    environment:
+      - SERVER_PORT=8080
+      - SERVER_NAME=MPC Node A
+      - NODE_ID=0
+      - OUTPUT_PATH=/dev/shm/mp-spdz
+      - EXPECTED_METERS=10
+
+  server-b:
+    image: cloud-aggregator:latest
+    ports:
+      - "8081:8081"
+    volumes:
+      - type: tmpfs
+        target: /dev/shm/mp-spdz
+    environment:
+      - SERVER_PORT=8081
+      - SERVER_NAME=MPC Node B
+      - NODE_ID=1
+      - OUTPUT_PATH=/dev/shm/mp-spdz
+      - EXPECTED_METERS=10
+
+  server-c:
+    image: cloud-aggregator:latest
+    ports:
+      - "8082:8082"
+    volumes:
+      - type: tmpfs
+        target: /dev/shm/mp-spdz
+    environment:
+      - SERVER_PORT=8082
+      - SERVER_NAME=MPC Node C
+      - NODE_ID=2
+      - OUTPUT_PATH=/dev/shm/mp-spdz
+      - EXPECTED_METERS=10
