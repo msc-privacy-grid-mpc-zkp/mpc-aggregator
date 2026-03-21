@@ -35,6 +35,7 @@ RUN make -j8 malicious-rep-ring-party.x
 # Kopiranje izvornog koda i skripte
 COPY ./src/variance.mpc ./Programs/Source/
 COPY ./entrypoint.sh ./entrypoint.sh
+COPY ./tcp_receiver.py ./tcp_receiver.py
 RUN chmod +x ./entrypoint.sh
 
 RUN echo "Compiling new version..." && date

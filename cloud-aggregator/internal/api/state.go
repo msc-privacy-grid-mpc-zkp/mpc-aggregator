@@ -1,11 +1,14 @@
 package api
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 )
 
 type AggregationSession struct {
@@ -55,7 +58,8 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64)
 
 	if session.Count == store.ExpectedMeters {
 		// As soon as the bucket is full, export to RAM Disk immediately
-		err := store.exportToRAMDisk(session.Meters)
+		// err := store.exportToRAMDisk(session.Meters)
+		err := store.sendToMPC(session.Meters)
 
 		// Clear session to free up memory
 		delete(store.Sessions, timestamp)
@@ -64,6 +68,46 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64)
 	}
 
 	return false, nil
+}
+
+func (store *MemoryStore) sendToMPC(meters map[string]int64) error {
+	addr := fmt.Sprintf("mpc-node-%c:9000", 'a'+store.NodeID)
+
+	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("[MPC SEND] connect failed to %s: %w", addr, err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			fmt.Printf("[MPC SEND] connection close error: %v\n", err)
+		}
+	}()
+
+	// optional safety: write deadline
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+
+	// sortiranje
+	keys := make([]string, 0, len(meters))
+	for k := range meters {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// buffer za efikasnost
+	writer := bufio.NewWriter(conn)
+
+	for _, k := range keys {
+		if _, err := fmt.Fprintf(writer, "%d\n", meters[k]); err != nil {
+			return fmt.Errorf("[MPC SEND] write failed (meter %s): %w", k, err)
+		}
+	}
+
+	// flush je KRITIČAN
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("[MPC SEND] flush failed: %w", err)
+	}
+
+	return nil
 }
 
 // exportToRAMDisk is an internal helper method for MP-SPDZ integration

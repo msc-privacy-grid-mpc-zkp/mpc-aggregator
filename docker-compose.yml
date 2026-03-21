@@ -12,9 +12,6 @@ services:
     environment:
       - NODE_ID=0
       - PORT=8080
-      - OUTPUT_PATH=/dev/shm/mp-spdz
-    volumes:
-      - node_a_shm:/dev/shm/mp-spdz
     networks:
       - mpc-network
 
@@ -28,12 +25,12 @@ services:
     container_name: mpc-node-a
     environment:
       - NODE_ID=0
-    volumes:
-      - node_a_shm:/dev/shm/mp-spdz
     depends_on:
       - server-a
     networks:
       - mpc-network
+    ports:
+      - "9000:9000"   # TCP receiver
     expose:
       - "5000"
       - "5001"
@@ -50,9 +47,6 @@ services:
     environment:
       - NODE_ID=1
       - PORT=8080
-      - OUTPUT_PATH=/dev/shm/mp-spdz
-    volumes:
-      - node_b_shm:/dev/shm/mp-spdz
     networks:
       - mpc-network
 
@@ -66,13 +60,12 @@ services:
     container_name: mpc-node-b
     environment:
       - NODE_ID=1
-      - NUM_METERS=${NUM_METERS}
-    volumes:
-      - node_b_shm:/dev/shm/mp-spdz
     depends_on:
       - server-b
     networks:
       - mpc-network
+    ports:
+      - "9001:9000"   # mapiramo različit host port
     expose:
       - "5000"
       - "5001"
@@ -89,9 +82,6 @@ services:
     environment:
       - NODE_ID=2
       - PORT=8080
-      - OUTPUT_PATH=/dev/shm/mp-spdz
-    volumes:
-      - node_c_shm:/dev/shm/mp-spdz
     networks:
       - mpc-network
 
@@ -105,12 +95,12 @@ services:
     container_name: mpc-node-c
     environment:
       - NODE_ID=2
-    volumes:
-      - node_c_shm:/dev/shm/mp-spdz
     depends_on:
       - server-c
     networks:
       - mpc-network
+    ports:
+      - "9002:9000"
     expose:
       - "5000"
       - "5001"
@@ -119,20 +109,3 @@ services:
 networks:
   mpc-network:
     driver: bridge
-
-volumes:
-  node_a_shm:
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: "size=64m"
-  node_b_shm:
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: "size=64m"
-  node_c_shm:
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: "size=64m"
