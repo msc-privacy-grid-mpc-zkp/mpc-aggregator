@@ -35,6 +35,8 @@ services:
       - "5000"
       - "5001"
       - "5002"
+    tmpfs:
+      - /tmp
 
   # --- SERVER B (Node 1) ---
   server-b:
@@ -65,11 +67,13 @@ services:
     networks:
       - mpc-network
     ports:
-      - "9001:9000"   # mapiramo različit host port
+      - "9001:9000"
     expose:
       - "5000"
       - "5001"
       - "5002"
+    tmpfs:
+      - /tmp   # <--- DODATO
 
   # --- SERVER C (Node 2) ---
   server-c:
@@ -105,6 +109,8 @@ services:
       - "5000"
       - "5001"
       - "5002"
+    tmpfs:
+      - /tmp
 
 networks:
   mpc-network:

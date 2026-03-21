@@ -40,3 +40,5 @@ services:
       - NODE_ID=2
       - OUTPUT_PATH=/dev/shm/mp-spdz
       - EXPECTED_METERS=10
+  mpc:
+    scale_factor: 1000

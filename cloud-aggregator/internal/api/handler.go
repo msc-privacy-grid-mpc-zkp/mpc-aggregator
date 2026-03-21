@@ -17,6 +17,12 @@ type ProofPayload struct {
 	Proof      []byte `json:"proof"`
 }
 
+type ResultPayload struct {
+	NodeID   int     `json:"node_id"`
+	Mean     float64 `json:"mean"`
+	Variance float64 `json:"variance"`
+}
+
 func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit uint64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -61,6 +67,37 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 
 		// Optional: Log every successful validation to keep track of progress
 		// log.Printf("[API] Validated ZKP from %s\n", payload.MeterID)
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func HandleMPCResults(scaleFactor float64) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var payload ResultPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			log.Printf("[ERROR] Failed to decode MPC results: %v\n", err)
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		// --- MATEMATIČKO DESKALIRANJE PREKO KONFIGURACIJE ---
+		// Mean se množi sa faktorom (npr. x 1000)
+		realMean := payload.Mean * scaleFactor
+		// Varijansa se množi sa kvadratom faktora (npr. x 1,000,000)
+		realVariance := payload.Variance * (scaleFactor * scaleFactor)
+
+		fmt.Printf("\n=================================================\n")
+		fmt.Printf("🏆 [MPC NODE %d REPORTED FINAL RESULTS]\n", payload.NodeID)
+		fmt.Printf("📊 Mean Consumption: %.2f W\n", realMean)
+		fmt.Printf("📉 Variance:         %.2f\n", realVariance)
+		fmt.Printf("=================================================\n\n")
 
 		w.WriteHeader(http.StatusOK)
 	}

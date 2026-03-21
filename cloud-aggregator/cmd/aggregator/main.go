@@ -33,5 +33,5 @@ func main() {
 		cfg.Aggregator.OutputPath,
 	)
 	address := ":" + cfg.Server.Port
-	api.StartServer(address, verifyingKey, store, cfg.ZKP.MaxLimit)
+	api.StartServer(address, verifyingKey, store, cfg)
 }
