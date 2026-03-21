@@ -36,11 +36,11 @@ COPY ./entrypoint.sh ./entrypoint.sh
 COPY ./tcp_receiver.py ./tcp_receiver.py
 RUN chmod +x ./entrypoint.sh
 
-ARG NUM_METERS=10
+#ARG NUM_METERS=10
 
-RUN echo "Compiling new version with NUM_METERS=$NUM_METERS..." && date
+#RUN echo "Compiling new version with NUM_METERS=$NUM_METERS..." && date
 
-RUN sed -i "s/num_meters = [0-9]*/num_meters = $NUM_METERS/g" ./Programs/Source/variance.mpc
+#RUN sed -i "s/num_meters = [0-9]*/num_meters = $NUM_METERS/g" ./Programs/Source/variance.mpc
 
 RUN ./compile.py -R 128 variance
 

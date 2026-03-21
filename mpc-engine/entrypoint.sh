@@ -1,10 +1,9 @@
 #!/bin/bash
 
 MY_ID=$NODE_ID
-INPUT_FILE="/tmp/Input-P${MY_ID}-0"
-OUTPUT_FILE="/tmp/Output-P${MY_ID}-0" # <--- Dodali smo putanju do izlaznog fajla
+OUTPUT_FILE="/tmp/Output-P${MY_ID}-0"
 
-# Određujemo kom Go serveru ovaj MPC čvor pripada
+# Mapiranje na Go servere
 case $MY_ID in
     0) GO_HOST="server-a" ;;
     1) GO_HOST="server-b" ;;
@@ -12,56 +11,53 @@ case $MY_ID in
 esac
 
 echo "======================================================"
-echo "🛡️  MPC Worker Node $MY_ID is ONLINE (FIFO RAM Mode)"
-echo "📂 Listening on Pipe: $INPUT_FILE"
-echo "📡 Will report results to: http://$GO_HOST:8080/api/results"
+echo "🛡️  MPC Worker Node $MY_ID is ONLINE (TOTAL PRIVACY)"
+echo "📡 Reporting to: http://$GO_HOST:8080/api/results"
 echo "======================================================"
 
-mkdir -p Player-Data
-
-# 1. Pokrećemo Python TCP receiver u pozadini
 python3 tcp_receiver.py &
-
-# Čekamo malo da Python stigne da kreira FIFO cev
 sleep 2
 
-# 2. Beskonačna petlja za MPC proces
 while true; do
     echo "🚀 [$(date +%T)] Waiting for Go Aggregator data..."
 
-    # Pokrećemo MPC. Standardni izlaz hvata bash, ali naši
-    # rezultati (print_ln) odlaze u OUTPUT_FILE
-    MPC_METRICS=$(./malicious-rep-ring-party.x "$MY_ID" variance -v \
+    # Izvršavanje MPC engine-a
+    ./malicious-rep-ring-party.x "$MY_ID" variance -v \
         -h mpc-node-a -h mpc-node-b -h mpc-node-c \
         -pn 5000 \
         -IF /tmp/Input \
-        -OF /tmp/Output \
-        2>&1)
+        -OF /tmp/Output > /dev/null 2>&1
 
-    # Ispisujemo metriku u terminal
-    echo "$MPC_METRICS"
-
-    # 3. PARSIRANJE REZULTATA DIREKTNO IZ FAJLA
+    # 2. PARSIRANJE REZULTATA - Koristimo nove tagove iz .mpc skripte
     if [ -f "$OUTPUT_FILE" ]; then
-        MEAN=$(grep "Mean value (scaled):" "$OUTPUT_FILE" | awk '{print $NF}')
-        VARIANCE=$(grep "Variance value (scaled):" "$OUTPUT_FILE" | awk '{print $NF}')
+        # Tražimo RESULT_MEAN: i uzimamo broj nakon toga, čistimo nevidljive karaktere
+        MEAN=$(grep "RESULT_MEAN:" "$OUTPUT_FILE" | awk -F': ' '{print $2}' | tr -cd '0-9.-')
 
-        # AKO SMO USPEŠNO IZVUKLI BROJEVE, ŠALJEMO IH U GO
-        if [ ! -z "$MEAN" ] && [ ! -z "$VARIANCE" ]; then
-            echo "📤 Sending results to Go Server ($GO_HOST)..."
+        # Tražimo RESULT_VARIANCE: i uzimamo broj nakon toga
+        VARIANCE=$(grep "RESULT_VARIANCE:" "$OUTPUT_FILE" | awk -F': ' '{print $2}' | tr -cd '0-9.-')
 
-            curl -s -X POST http://$GO_HOST:8080/api/results \
+        # 3. SLANJE REZULTATA
+        if [[ ! -z "$MEAN" && "$MEAN" != *"nan"* && ! -z "$VARIANCE" && "$VARIANCE" != *"nan"* ]]; then
+            echo "📊 Results Parsed: Mean=$MEAN, Var=$VARIANCE"
+            echo "📤 Sending to Go Server ($GO_HOST)..."
+
+            curl -s -X POST "http://$GO_HOST:8080/api/results" \
                  -H "Content-Type: application/json" \
-                 -d "{\"node_id\": $MY_ID, \"mean\": $MEAN, \"variance\": $VARIANCE}" > /dev/null
+                 -d "{\"node_id\": $MY_ID, \"mean\": $MEAN, \"variance\": $VARIANCE}"
 
             echo "✅ Results sent successfully!"
         else
-            echo "⚠️ Could not parse Mean/Variance from file. Skipping webhook."
+            echo "⚠️ Parsing failed. Expected RESULT_MEAN/VARIANCE in $OUTPUT_FILE"
+            echo "Sadržaj fajla:"
+            cat "$OUTPUT_FILE"
         fi
     else
-        echo "⚠️ Output file missing! Skipping webhook."
+        echo "⚠️ Output file $OUTPUT_FILE missing!"
     fi
 
-    echo "⏳ Restarting engine for the next batch..."
+    # Čistimo izlazni fajl za sledeći batch da ne bi grep čitao stare rezultate
+    rm -f "$OUTPUT_FILE"
+
+    echo "⏳ Restarting engine..."
     sleep 1
 done
