@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime" // DODATO: Za detekciju broja CPU jezgara
 
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator/internal/zkp"
@@ -22,6 +23,11 @@ type ResultPayload struct {
 	Mean     float64 `json:"mean"`
 	Variance float64 `json:"variance"`
 }
+
+// DODATO: Semafor koji ograničava broj paralelnih ZKP verifikacija.
+// runtime.NumCPU() automatski uzima broj logičkih jezgara tvog procesora.
+// Ako ti je procesor i dalje zagušen, možeš ručno staviti broj, npr. make(chan struct{}, 4)
+var verifySemaphore = make(chan struct{}, runtime.NumCPU())
 
 func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit uint64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -42,8 +48,18 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 			}
 		}()
 
+		// --- KONTROLA PARALELIZACIJE ---
+		// Zauzimamo jedno "mesto" u semaforu.
+		// Ako su sva jezgra zauzeta verifikacijama, ovaj zahtev će strpljivo čekati ovde.
+		verifySemaphore <- struct{}{}
+
 		// 1. ZKP Verification
 		err := zkp.VerifyProof(payload.Proof, maxLimit, verifyingKey)
+
+		// Oslobađamo "mesto" u semaforu čim se provera završi, kako bi sledeći mogao da počne.
+		<-verifySemaphore
+		// -------------------------------
+
 		if err != nil {
 			log.Printf("[SECURITY ALERT] Invalid proof from %s: %v\n", payload.MeterID, err)
 			http.Error(w, "Cryptographic proof validation failed", http.StatusForbidden)
@@ -65,14 +81,12 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 			fmt.Printf("=================================================\n\n")
 		}
 
-		// Optional: Log every successful validation to keep track of progress
-		// log.Printf("[API] Validated ZKP from %s\n", payload.MeterID)
-
 		w.WriteHeader(http.StatusOK)
 	}
 }
 
 func HandleMPCResults(scaleFactor float64) http.HandlerFunc {
+	// ... (ovaj deo ostaje potpuno nepromenjen) ...
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -87,10 +101,7 @@ func HandleMPCResults(scaleFactor float64) http.HandlerFunc {
 		}
 		defer r.Body.Close()
 
-		// --- MATEMATIČKO DESKALIRANJE PREKO KONFIGURACIJE ---
-		// Mean se množi sa faktorom (npr. x 1000)
 		realMean := payload.Mean * scaleFactor
-		// Varijansa se množi sa kvadratom faktora (npr. x 1,000,000)
 		realVariance := payload.Variance * (scaleFactor * scaleFactor)
 
 		fmt.Printf("\n=================================================\n")

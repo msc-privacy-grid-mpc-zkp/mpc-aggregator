@@ -1,42 +1,38 @@
-# variance.mpc - FINAL STABLE VERSION
 program.use_edabit(True)
 
+NUM_PARTIES = @@NUM_PARTIES@@
 MAX_METERS = 1000
-num_parties = 3
-# Koristimo float za SCALER da nateramo MP-SPDZ na sfix aritmetiku
 SCALER = 1000.0
 
-print_ln("=========== MPC EXECUTION START ===========")
+print_ln("=========== MPC START (Nodes: %s) ===========", NUM_PARTIES)
 
-# 1. REKONSTRUKCIJA TAJNOG BROJA N
-# Prvi podatak koji Go šalje je share za N
-n_shares = sint.get_input_from(0) + sint.get_input_from(1) + sint.get_input_from(2)
+# 1. Prikupljanje n_shares 
+n_shares = sint(0)
+for p in range(NUM_PARTIES):
+    n_shares += sint.get_input_from(p)
 n_sec = sfix(n_shares)
 
-# 2. VEKTORIZOVANO ČITANJE (Brzi mrežni blok)
-all_inputs = [sint.Array(MAX_METERS) for _ in range(num_parties)]
+# 2. Vektorizovano prikupljanje ulaza 
+X_raw = sint.get_input_from(0, size=MAX_METERS)
+for p in range(1, NUM_PARTIES):
+    X_raw += sint.get_input_from(p, size=MAX_METERS)
 
-@for_range(MAX_METERS)
-def _(i):
-    for p in range(num_parties):
-        all_inputs[p][i] = sint.get_input_from(p)
+# OPTIMIZACIJA BEZ OVERFLOW-A: 
+# Prvo prebacujemo u sfix i skaliramo (odmah smanjujemo veličinu brojeva)
+# Množenje konstantom je jeftinije od deljenja
+inv_scaler = 1.0 / SCALER
+X_scaled = sfix(X_raw) * inv_scaler
 
-# 3. SABIRANJE I RANO SKALIRANJE
-# Sabiramo udela servera i pretvaramo vate u kilovate odmah
-X_raw = all_inputs[0] + all_inputs[1] + all_inputs[2]
-X_scaled = sfix(X_raw) / SCALER
-
-# 4. AGREGACIJA (Munjevito korišćenjem sfix internih metoda)
-# Suma i dot_product nad skaliranim vrednostima sprečavaju NaN
+# Sada radimo sumu i dot_product nad skaliranim vrednostima.
+# Ove vrednosti su sada oko 1.5, pa kvadrati neće prelivati.
 sum_x = X_scaled.sum()
 sum_x2 = sfix.dot_product(X_scaled, X_scaled)
 
-# 5. OBRAČUN REZULTATA
-mean = sum_x / n_sec
-# Varijansa: (Suma kvadrata / N) - prosek na kvadrat
-variance = (sum_x2 / n_sec) - (mean * mean)
+# OPTIMIZACIJA 3 ZADRŽANA: Izračunavamo 1/n jednom (1 tajno deljenje) i množimo
+inv_n = 1.0 / n_sec
+
+mean = sum_x * inv_n
+variance = (sum_x2 * inv_n) - (mean * mean)
 
 print_ln("RESULT_MEAN: %s", mean.reveal())
 print_ln("RESULT_VARIANCE: %s", variance.reveal())
-
-print_ln("=========== MPC EXECUTION END ===========")
