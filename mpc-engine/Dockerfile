@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Instalacija svih potrebnih biblioteka i alata
+# 1. Instalacija sistemskih zavisnosti
 RUN apt-get update && apt-get install -y \
     python3 python3-dev python3-pip \
     git build-essential clang lld \
@@ -13,35 +13,35 @@ RUN apt-get update && apt-get install -y \
     iputils-ping netcat-openbsd curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Kloniramo repozitorijum u specifičan folder
+# 2. Kloniranje MP-SPDZ repozitorijuma
 RUN git clone https://github.com/data61/MP-SPDZ.git /mp-spdz
-
 WORKDIR /mp-spdz
 
-# 1. GENERISANJE SERTIFIKATA
+# 3. GLOBALNI ARGUMENT: Ovde definišeš broj partija (default 3)
 ARG NUM_PARTIES=3
+
+# 4. Generisanje SSL sertifikata za tačan broj partija
 RUN Scripts/setup-ssl.sh $NUM_PARTIES
 
-# 2. CONFIGURACIJA
+# 5. Konfiguracija kompajlera i mašine
 RUN echo "CXX = clang++" > CONFIG.mine && \
     echo "MY_CFLAGS = -I/usr/local/include -DINSECURE" >> CONFIG.mine && \
     echo "MY_LDLIBS = -L/usr/local/lib" >> CONFIG.mine
 
-# Kompajliranje mašine za prsten
+# 6. Kompajliranje specifičnog protokola (malicious-rep-ring)
 RUN make -j8 malicious-rep-ring-party.x
 
-# Kopiranje izvornog koda i skripti
+# 7. Kopiranje tvog koda i skripti
 COPY ./src/variance.mpc ./Programs/Source/
 COPY ./entrypoint.sh ./entrypoint.sh
 COPY ./tcp_receiver.py ./tcp_receiver.py
 RUN chmod +x ./entrypoint.sh
 
-#ARG NUM_METERS=10
+# 8. SED INJECTION: Menjamo marker @@NUM_PARTIES@@ u fajlu pravom vrednošću
+# Ovo osigurava da skripta uvek zna tačan broj čvorova
+RUN sed -i "s/@@NUM_PARTIES@@/$NUM_PARTIES/g" ./Programs/Source/variance.mpc
 
-#RUN echo "Compiling new version with NUM_METERS=$NUM_METERS..." && date
-
-#RUN sed -i "s/num_meters = [0-9]*/num_meters = $NUM_METERS/g" ./Programs/Source/variance.mpc
-
+# 9. Kompilacija MPC kola (sada bez eksternih args jer je broj upisan u kod)
 RUN ./compile.py -R 128 variance
 
 ENTRYPOINT ["./entrypoint.sh"]
