@@ -20,7 +20,7 @@ type AppConfig struct {
 	} `yaml:"zkp"`
 
 	Aggregator struct {
-		ExpectedMeters int    `yaml:"expected_meters" env:"EXPECTED_METERS" env-default:"500"`
+		ExpectedMeters int    `yaml:"expected_meters" env:"EXPECTED_METERS" env-default:"10"`
 		NodeID         int    `yaml:"node_id" env:"NODE_ID" env-default:"0"`
 		OutputPath     string `yaml:"output_path" env:"OUTPUT_PATH" env-default:"/dev/shm/mp-spdz"`
 

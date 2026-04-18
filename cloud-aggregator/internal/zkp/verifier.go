@@ -10,7 +10,7 @@ import (
 	"os"
 )
 
-func VerifyProof(proofBytes []byte, maxLimit uint64, verifyingKey groth16.VerifyingKey) error {
+func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyingKey groth16.VerifyingKey) error {
 	proof := groth16.NewProof(ecc.BN254)
 	_, err := proof.ReadFrom(bytes.NewReader(proofBytes))
 	if err != nil {
@@ -18,7 +18,9 @@ func VerifyProof(proofBytes []byte, maxLimit uint64, verifyingKey groth16.Verify
 	}
 
 	assigment := &RangeProofCircuit{
-		MaxLimit: maxLimit,
+		MaxLimit:  maxLimit,
+		MeterID:   meterID,
+		Timestamp: timestamp,
 	}
 
 	publicWitness, err := frontend.NewWitness(assigment, ecc.BN254.ScalarField(), frontend.PublicOnly())

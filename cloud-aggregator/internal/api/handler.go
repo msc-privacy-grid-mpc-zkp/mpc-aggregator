@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 	"runtime" // DODATO: Za detekciju broja CPU jezgara
@@ -54,7 +55,13 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 		verifySemaphore <- struct{}{}
 
 		// 1. ZKP Verification
-		err := zkp.VerifyProof(payload.Proof, maxLimit, verifyingKey)
+		timestampUint := uint64(payload.Timestamp)
+
+		// 2. Хешујемо стринг ID-а у број (мора бити ИСТА функција као у симулатору!)
+		numericMeterID := stringToUint64(payload.MeterID)
+
+		// 3. ZKP Verification са свим параметрима
+		err := zkp.VerifyProof(payload.Proof, maxLimit, numericMeterID, timestampUint, verifyingKey)
 
 		// Oslobađamo "mesto" u semaforu čim se provera završi, kako bi sledeći mogao da počne.
 		<-verifySemaphore
@@ -112,4 +119,10 @@ func HandleMPCResults(scaleFactor float64) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+func stringToUint64(s string) uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return h.Sum64()
 }
