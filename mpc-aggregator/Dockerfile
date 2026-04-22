@@ -30,7 +30,7 @@ COPY . .
 RUN go mod tidy
 
 # 5. Kompajliramo uz uklanjanje debug simbola (-ldflags="-s -w") za drastično manji fajl
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o cloud-server ./cmd/aggregator/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o mpc-server ./cmd/aggregator/main.go
 
 # --- STEP 2: Final stage (Scratch) ---
 # Koristimo 'scratch' (apsolutno prazan image, 0 MB overhead-a)
@@ -45,7 +45,7 @@ COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
 
 # 7. Kopiramo tvoj kod i fajlove
-COPY --from=builder /app/cloud-server .
+COPY --from=builder /app/mpc-server .
 COPY --from=builder /app/config.yaml ./config.yaml
 COPY --from=builder /app/keys ./keys
 
@@ -54,4 +54,4 @@ USER appuser:appuser
 
 EXPOSE 8080
 
-CMD ["./cloud-server"]
+CMD ["./mpc-server"]

@@ -3,7 +3,7 @@ package api
 import (
 	"fmt"
 	"github.com/consensys/gnark/backend/groth16"
-	"github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator/internal/config"
+	"github.com/msc-privacy-grid-mpc-zkp/mpc-aggregator/internal/config"
 	"log"
 	"net/http"
 )

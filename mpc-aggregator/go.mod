@@ -1,4 +1,4 @@
-module github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator
+module github.com/msc-privacy-grid-mpc-zkp/mpc-aggregator
 
 go 1.24.0
 

@@ -9,7 +9,7 @@ import (
 	"runtime" // DODATO: Za detekciju broja CPU jezgara
 
 	"github.com/consensys/gnark/backend/groth16"
-	"github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator/internal/zkp"
+	"github.com/msc-privacy-grid-mpc-zkp/mpc-aggregator/internal/zkp"
 )
 
 type ProofPayload struct {

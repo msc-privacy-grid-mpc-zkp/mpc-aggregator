@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator/internal/api"
-	"github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator/internal/config"
-	"github.com/msc-privacy-grid-mpc-zkp/cloud-aggregator/internal/zkp"
+	"github.com/msc-privacy-grid-mpc-zkp/mpc-aggregator/internal/api"
+	"github.com/msc-privacy-grid-mpc-zkp/mpc-aggregator/internal/config"
+	"github.com/msc-privacy-grid-mpc-zkp/mpc-aggregator/internal/zkp"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 		log.Fatalf("[FATAL] Error loading configuration: %v", err)
 	}
 
-	fmt.Printf("☁️  Starting MPC Cloud Aggregator: [%s]\n", cfg.Server.Name)
+	fmt.Printf("☁️  Starting MPC Aggregator: [%s]\n", cfg.Server.Name)
 	fmt.Printf("---------------------------------------------------------\n")
 
 	// 2. Load the ZKP key

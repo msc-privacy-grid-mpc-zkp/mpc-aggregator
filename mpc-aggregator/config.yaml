@@ -1,6 +1,6 @@
 services:
   server-a:
-    image: cloud-aggregator:latest
+    image: mpc-aggregator:latest
     ports:
       - "8080:8080"
     volumes:
@@ -14,7 +14,7 @@ services:
       - EXPECTED_METERS=50
 
   server-b:
-    image: cloud-aggregator:latest
+    image: mpc-aggregator:latest
     ports:
       - "8081:8081"
     volumes:
@@ -28,7 +28,7 @@ services:
       - EXPECTED_METERS=50
 
   server-c:
-    image: cloud-aggregator:latest
+    image: mpc-aggregator:latest
     ports:
       - "8082:8082"
     volumes:

@@ -1,6 +1,6 @@
 # Binaries
 bin/
-/cloud-aggregator.exe 
+/mpc-aggregator.exe 
 /bin/
 *.exe
 

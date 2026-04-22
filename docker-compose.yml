@@ -4,7 +4,7 @@ services:
   # --- SERVER A (Node 0) ---
   server-a:
     build:
-      context: ./cloud-aggregator
+      context: ./mpc-aggregator
       dockerfile: Dockerfile
     container_name: server-a
     ports:
@@ -41,7 +41,7 @@ services:
   # --- SERVER B (Node 1) ---
   server-b:
     build:
-      context: ./cloud-aggregator
+      context: ./mpc-aggregator
       dockerfile: Dockerfile
     container_name: server-b
     ports:
@@ -78,7 +78,7 @@ services:
   # --- SERVER C (Node 2) ---
   server-c:
     build:
-      context: ./cloud-aggregator
+      context: ./mpc-aggregator
       dockerfile: Dockerfile
     container_name: server-c
     ports:
