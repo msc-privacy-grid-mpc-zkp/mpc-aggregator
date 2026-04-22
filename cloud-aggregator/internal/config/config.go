@@ -20,10 +20,12 @@ type AppConfig struct {
 	} `yaml:"zkp"`
 
 	Aggregator struct {
-		ExpectedMeters int `yaml:"expected_meters" env:"EXPECTED_METERS" env-default:"10"`
-		// Novi parametri za MP-SPDZ integraciju
-		NodeID     int    `yaml:"node_id" env:"NODE_ID" env-default:"0"`
-		OutputPath string `yaml:"output_path" env:"OUTPUT_PATH" env-default:"/dev/shm/mp-spdz"`
+		ExpectedMeters int    `yaml:"expected_meters" env:"EXPECTED_METERS" env-default:"10"`
+		NodeID         int    `yaml:"node_id" env:"NODE_ID" env-default:"0"`
+		OutputPath     string `yaml:"output_path" env:"OUTPUT_PATH" env-default:"/dev/shm/mp-spdz"`
+
+		// NOVO: Faktor skaliranja za vraćanje MPC rezultata u prave merne jedinice
+		ScaleFactor float64 `yaml:"scale_factor" env:"SCALE_FACTOR" env-default:"1000.0"`
 	} `yaml:"aggregator"`
 }
 
@@ -44,6 +46,11 @@ func LoadConfig() (*AppConfig, error) {
 	// Safety checks
 	if cfg.Aggregator.ExpectedMeters < 1 {
 		cfg.Aggregator.ExpectedMeters = 10
+	}
+
+	// Safety check za ScaleFactor (ne sme biti 0, po default-u vraćamo na 1000)
+	if cfg.Aggregator.ScaleFactor <= 0 {
+		cfg.Aggregator.ScaleFactor = 1000.0
 	}
 
 	return &cfg, nil

@@ -11,7 +11,7 @@ services:
       - SERVER_NAME=MPC Node A
       - NODE_ID=0
       - OUTPUT_PATH=/dev/shm/mp-spdz
-      - EXPECTED_METERS=10
+      - EXPECTED_METERS=50
 
   server-b:
     image: cloud-aggregator:latest
@@ -25,7 +25,7 @@ services:
       - SERVER_NAME=MPC Node B
       - NODE_ID=1
       - OUTPUT_PATH=/dev/shm/mp-spdz
-      - EXPECTED_METERS=10
+      - EXPECTED_METERS=50
 
   server-c:
     image: cloud-aggregator:latest
@@ -39,4 +39,6 @@ services:
       - SERVER_NAME=MPC Node C
       - NODE_ID=2
       - OUTPUT_PATH=/dev/shm/mp-spdz
-      - EXPECTED_METERS=10
+      - EXPECTED_METERS=50
+  mpc:
+    scale_factor: 1000

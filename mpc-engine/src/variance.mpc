@@ -1,50 +1,38 @@
-# variance.mpc - production-ready MPC
-# Računanje proseka i varijanse u MPC bez otkrivanja pojedinačnih inputa
+program.use_edabit(True)
 
-# Uvoz biblioteka za čitanje environment varijabli
-import os
+NUM_PARTIES = @@NUM_PARTIES@@
+MAX_METERS = 1000
+SCALER = 1000.0
 
-# Skaliranje radi numeričke stabilnosti
-scale = sfix(1000)  # normalizacioni faktor
+print_ln("=========== MPC START (Nodes: %s) ===========", NUM_PARTIES)
 
-# Broj mjernih tačaka (konfigurabilan preko environment varijable)
-num_meters = 10
-num_parties = 3
+# 1. Prikupljanje n_shares 
+n_shares = sint(0)
+for p in range(NUM_PARTIES):
+    n_shares += sint.get_input_from(p)
+n_sec = sfix(n_shares)
 
-print_ln("=========== MPC PROGRAM START ===========")
-print_ln("Number of meters: %s", num_meters)
-print_ln("Number of parties: %s", num_parties)
+# 2. Vektorizovano prikupljanje ulaza 
+X_raw = sint.get_input_from(0, size=MAX_METERS)
+for p in range(1, NUM_PARTIES):
+    X_raw += sint.get_input_from(p, size=MAX_METERS)
 
-# Inicijalizacija suma
-sum_x = sfix(0)
-sum_x2 = sfix(0)
+# OPTIMIZACIJA BEZ OVERFLOW-A: 
+# Prvo prebacujemo u sfix i skaliramo (odmah smanjujemo veličinu brojeva)
+# Množenje konstantom je jeftinije od deljenja
+inv_scaler = 1.0 / SCALER
+X_scaled = sfix(X_raw) * inv_scaler
 
-# Čitanje inputa i agregacija
-for i in range(num_meters):
-    # Inicijalizujemo sumu za trenutno brojilo
-    sum_shares = sint(0)
-    
-    # Dinamički prolazimo kroz sve učesnike (0, 1, 2... do num_parties-1)
-    for p in range(num_parties):
-        sum_shares += sint.get_input_from(p)
+# Sada radimo sumu i dot_product nad skaliranim vrednostima.
+# Ove vrednosti su sada oko 1.5, pa kvadrati neće prelivati.
+sum_x = X_scaled.sum()
+sum_x2 = sfix.dot_product(X_scaled, X_scaled)
 
-    # Rekonstrukcija u MPC polju i skaliranje
-    x = sfix(sum_shares) / scale
+# OPTIMIZACIJA 3 ZADRŽANA: Izračunavamo 1/n jednom (1 tajno deljenje) i množimo
+inv_n = 1.0 / n_sec
 
-    # Agregacija samo za mean i variance
-    sum_x += x
-    sum_x2 += x * x
+mean = sum_x * inv_n
+variance = (sum_x2 * inv_n) - (mean * mean)
 
-print_ln("=========== INPUTS READ ===========")
-
-# Prosek
-mean = sum_x / num_meters
-print_ln("=========== MEAN CONSUMPTION ===========")
-print_ln("Mean value (scaled): %s", mean.reveal())
-
-# Varijansa (numerički stabilna formula)
-variance = (sum_x2 / num_meters) - (mean * mean)
-print_ln("=========== VARIANCE ===========")
-print_ln("Variance value (scaled): %s", variance.reveal())
-
-print_ln("=========== MPC PROGRAM END ===========")
+print_ln("RESULT_MEAN: %s", mean.reveal())
+print_ln("RESULT_VARIANCE: %s", variance.reveal())

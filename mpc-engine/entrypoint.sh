@@ -1,35 +1,63 @@
 #!/bin/bash
 
-# Preuzimamo NODE_ID (0, 1 ili 2) prosleđen kroz docker-compose
 MY_ID=$NODE_ID
-# Putanja do fajla u RAM disku (Shared Memory) koji pravi Go server
-INPUT_FILE="/dev/shm/mp-spdz/Input-P${MY_ID}-0"
+OUTPUT_FILE="/tmp/Output-P${MY_ID}-0"
+
+# Mapiranje na Go servere
+case $MY_ID in
+    0) GO_HOST="server-a" ;;
+    1) GO_HOST="server-b" ;;
+    2) GO_HOST="server-c" ;;
+esac
 
 echo "======================================================"
-echo "🛡️  MPC Worker Node $MY_ID is ONLINE"
-echo "📂 Monitoring shared memory: $INPUT_FILE"
+echo "🛡️  MPC Worker Node $MY_ID is ONLINE (TOTAL PRIVACY)"
+echo "📡 Reporting to: http://$GO_HOST:8080/api/results"
 echo "======================================================"
 
-# Kreiramo neophodan folder za MP-SPDZ privremene podatke
-mkdir -p Player-Data
+python3 tcp_receiver.py &
+sleep 2
 
-# Beskonačna petlja koja prati promenu u RAM disku
 while true; do
-    # Proveravamo da li je Go Aggregator generisao fajl sa udelima
-    if [ -f "$INPUT_FILE" ]; then
-            echo "🚀 [$(date +%T)] Data detected for Node $MY_ID! Starting MPC..."
+    echo "🚀 [$(date +%T)] Waiting for Go Aggregator data..."
 
-            # DIREKTNI POZIV BINARNOG FAJLA
-            # Redosled: <izvršni> <player_id> <ime_programa> [opcije]
-            ./malicious-rep-ring-party.x "$MY_ID" variance -v \
-                -h mpc-node-a -h mpc-node-b -h mpc-node-c \
-                -pn 5000 \
-                -IF /dev/shm/mp-spdz/Input \
-                -OF /dev/shm/mp-spdz/Output \
-                2>&1
+    # Izvršavanje MPC engine-a
+    ./malicious-rep-ring-party.x "$MY_ID" variance -v \
+        -h mpc-node-a -h mpc-node-b -h mpc-node-c \
+        -pn 5000 \
+        -IF /tmp/Input \
+        -OF /tmp/Output > /dev/null 2>&1
 
-            rm "$INPUT_FILE"
-            echo "✅ [$(date +%T)] Calculation finished. Waiting for next batch..."
+    # 2. PARSIRANJE REZULTATA - Koristimo nove tagove iz .mpc skripte
+    if [ -f "$OUTPUT_FILE" ]; then
+        # Tražimo RESULT_MEAN: i uzimamo broj nakon toga, čistimo nevidljive karaktere
+        MEAN=$(grep "RESULT_MEAN:" "$OUTPUT_FILE" | awk -F': ' '{print $2}' | tr -cd '0-9.-')
+
+        # Tražimo RESULT_VARIANCE: i uzimamo broj nakon toga
+        VARIANCE=$(grep "RESULT_VARIANCE:" "$OUTPUT_FILE" | awk -F': ' '{print $2}' | tr -cd '0-9.-')
+
+        # 3. SLANJE REZULTATA
+        if [[ ! -z "$MEAN" && "$MEAN" != *"nan"* && ! -z "$VARIANCE" && "$VARIANCE" != *"nan"* ]]; then
+            echo "📊 Results Parsed: Mean=$MEAN, Var=$VARIANCE"
+            echo "📤 Sending to Go Server ($GO_HOST)..."
+
+            curl -s -X POST "http://$GO_HOST:8080/api/results" \
+                 -H "Content-Type: application/json" \
+                 -d "{\"node_id\": $MY_ID, \"mean\": $MEAN, \"variance\": $VARIANCE}"
+
+            echo "✅ Results sent successfully!"
+        else
+            echo "⚠️ Parsing failed. Expected RESULT_MEAN/VARIANCE in $OUTPUT_FILE"
+            echo "Sadržaj fajla:"
+            cat "$OUTPUT_FILE"
+        fi
+    else
+        echo "⚠️ Output file $OUTPUT_FILE missing!"
     fi
+
+    # Čistimo izlazni fajl za sledeći batch da ne bi grep čitao stare rezultate
+    rm -f "$OUTPUT_FILE"
+
+    echo "⏳ Restarting engine..."
     sleep 1
 done

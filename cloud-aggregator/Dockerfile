@@ -1,45 +1,57 @@
 # --- STEP 1: Build stage ---
 FROM golang:1.24-alpine AS builder
 
-# Instaliramo git (neophodan za povlačenje gnark i ostalih eksternih biblioteka)
-RUN apk add --no-cache git
+# 1. Instaliramo git, ali i CA sertifikate i timezone podatke
+# koje ćemo prekopirati u finalni prazan image
+RUN apk add --no-cache git ca-certificates tzdata && update-ca-certificates
+
+# 2. Kreiramo non-root korisnika za maksimalnu bezbednost
+ENV USER=appuser
+ENV UID=10001
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    "${USER}"
 
 WORKDIR /app
 
-# Kopiramo definicije modula
+# 3. Kopiramo SAMO definicije modula (Savršeno Docker keširanje)
 COPY go.mod go.sum ./
-
-# Pokušavamo download (iako go mod tidy ispod to može da popravi, ovo je dobro za keširanje)
 RUN go mod download
 
-# Kopiramo sav izvorni kod
+# 4. Tek sada kopiramo ostatak koda
 COPY . .
 
-# KLJUČNI KORAK: Sređujemo zavisnosti koje su pravile problem (gnark, cleanenv, itd.)
+# DODATO: Neka Docker osveži zavisnosti pre bildovanja
 RUN go mod tidy
 
-# Kompajliramo aplikaciju na osnovu tačne putanje sa tvoje slike
-RUN CGO_ENABLED=0 GOOS=linux go build -o cloud-server ./cmd/aggregator/main.go
+# 5. Kompajliramo uz uklanjanje debug simbola (-ldflags="-s -w") za drastično manji fajl
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o cloud-server ./cmd/aggregator/main.go
 
-# --- STEP 2: Final stage ---
-FROM alpine:latest
+# --- STEP 2: Final stage (Scratch) ---
+# Koristimo 'scratch' (apsolutno prazan image, 0 MB overhead-a)
+FROM scratch
 
-# Opciono: dodaj sertifikate ako budeš imao HTTPS pozive kasnije
-RUN apk --no-cache add ca-certificates || true
+WORKDIR /app/
 
-WORKDIR /root/
+# 6. Kopiramo sistemske esencijale iz buildera u prazan prostor
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
 
-# Kopiramo izvršni fajl iz builder faze
+# 7. Kopiramo tvoj kod i fajlove
 COPY --from=builder /app/cloud-server .
-
-# Kopiramo tvoj config.yaml (pošto je u root-u, Docker će ga naći)
 COPY --from=builder /app/config.yaml ./config.yaml
-
-# Kopiranje foldera sa ključevima
 COPY --from=builder /app/keys ./keys
 
-# Izlažemo port (proveri da li tvoja aplikacija sluša na 8080)
+# 8. Forsiramo izvršavanje pod non-root korisnikom
+USER appuser:appuser
+
 EXPOSE 8080
 
-# Pokrećemo server
 CMD ["./cloud-server"]
