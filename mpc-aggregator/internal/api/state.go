@@ -28,17 +28,21 @@ type MemoryStore struct {
 }
 
 func NewMemoryStore(expected int, nodeID int, outputPath string) *MemoryStore {
-	return &MemoryStore{
+	store := &MemoryStore{
 		Sessions:       make(map[int64]*AggregationSession),
 		ExpectedMeters: expected,
 		NodeID:         nodeID,
 		OutputPath:     outputPath,
 	}
+
+	go store.cleanupStaleSessions()
+
+	return store
 }
 
 func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64) (bool, error) {
 	store.mu.Lock()
-	defer store.mu.Unlock()
+	// UKLONJENO: defer store.mu.Unlock() - Otključavaćemo ručno kako bismo oslobodili mrežu
 
 	session, exists := store.Sessions[timestamp]
 	if !exists {
@@ -51,6 +55,7 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64)
 
 	// Prevent duplicates within the same timestamp
 	if _, ok := session.Meters[meterID]; ok {
+		store.mu.Unlock() // Ručno otključavanje ako izlazimo rano
 		return false, nil
 	}
 
@@ -59,18 +64,74 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64)
 
 	fmt.Printf("[AGGREGATOR] Progress for timestamp %d: %d/%d meters\n", timestamp, session.Count, store.ExpectedMeters)
 
+	var metersToExport map[string]int64
+
 	if session.Count == store.ExpectedMeters {
-		// As soon as the bucket is full, export to RAM Disk immediately
-		// err := store.exportToRAMDisk(session.Meters)
-		err := store.sendToMPC(timestamp, session.Meters)
+		// --- 🔍 POČETAK DEBUG LOGA ---
+		fmt.Printf("\n🔥 [DEBUG AGGREGATOR] Kanta je PUNA za Timestamp: %d\n", timestamp)
+		var expectedTotal int64 = 0
+		for k, v := range session.Meters {
+			fmt.Printf("   -> Sadrži: %s = %d W\n", k, v)
+			expectedTotal += v
+		}
+		fmt.Printf("🔥 [DEBUG AGGREGATOR] UKUPAN ZBIR KOJI ŠALJEM U MPC: %d W\n", expectedTotal)
+		fmt.Printf("-------------------------------------------------\n")
+		// --- 🔍 KRAJ DEBUG LOGA ---
+
+		// Duboko kopiramo mapu kako bismo oslobodili Mutex pre mrežnog poziva
+		metersToExport = make(map[string]int64)
+		for k, v := range session.Meters {
+			metersToExport[k] = v
+		}
 
 		// Clear session to free up memory
 		delete(store.Sessions, timestamp)
+	}
 
+	// 🔓 OTKLJUČAVAMO MUTEX PRE MREŽNOG POZIVA
+	store.mu.Unlock()
+
+	// Ako imamo podatke za eksport, šaljemo ih SADA, kada memorija više nije blokirana
+	if metersToExport != nil {
+		err := store.sendToMPC(timestamp, metersToExport)
 		return true, err
 	}
 
 	return false, nil
+}
+
+// cleanupStaleSessions periodically checks and cleans up unfinished sessions
+func (store *MemoryStore) cleanupStaleSessions() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		store.mu.Lock()
+		now := time.Now().Unix()
+
+		// Skupljamo istekle sesije u privremenu mapu da ne bismo blokirali Mutex tokom slanja
+		staleSessions := make(map[int64]map[string]int64)
+
+		for timestamp, session := range store.Sessions {
+			// Ako je sesija starija od 60 sekundi (timeout)
+			if now-timestamp > 60 {
+				fmt.Printf("[CLEANUP] Sesija %d je istekla sa %d/%d brojila. Skupljam za MPC...\n", timestamp, session.Count, store.ExpectedMeters)
+
+				staleSessions[timestamp] = session.Meters
+				delete(store.Sessions, timestamp) // Oslobađanje memorije
+			}
+		}
+		// 🔓 OTKLJUČAVAMO MUTEX
+		store.mu.Unlock()
+
+		// Šaljemo istekle sesije preko mreže
+		for ts, meters := range staleSessions {
+			err := store.sendToMPC(ts, meters)
+			if err != nil {
+				fmt.Printf("[CLEANUP ERROR] Greška pri slanju istekle sesije %d u MPC: %v\n", ts, err)
+			}
+		}
+	}
 }
 
 func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]int64) error {
@@ -94,16 +155,12 @@ func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]int64) er
 	actualCount := int64(len(meters))
 
 	// 2. Kriptografski "Blind" faktori zasnovani na timestampu
-	// Koristimo SHA256 od timestampa da dobijemo stabilan seed za PRNG
 	h := sha256.New()
 	binary.Write(h, binary.BigEndian, timestamp)
 	seed := binary.BigEndian.Uint64(h.Sum(nil)[:8])
 
-	// Inicijalizujemo lokalni generator sa zajedničkim seedom
 	r := rand.New(rand.NewSource(int64(seed)))
 
-	// Generišemo shares tako da: s0 + s1 + s2 = actualCount
-	// Svaki čvor generiše istu sekvencu, ali uzima samo svoj deo
 	share0 := r.Int63n(1000000)
 	share1 := r.Int63n(1000000)
 	share2 := actualCount - share0 - share1
