@@ -39,9 +39,8 @@ print_ln("🔍 [DEBUG MPC] ===> TOTAL RAW SUM PRIJE DELJENJA I SCALERA: %s", sum
 # OPTIMIZACIJA BEZ OVERFLOW-A: 
 # Prvo prebacujemo u sfix i skaliramo (odmah smanjujemo veličinu brojeva)
 # Množenje konstantom je jeftinije od deljenja
-# Sa sfix.set_precision(20, 60) ovo je sada sigurno:
-#   - sfix(X_raw): interno množi sa 2^20 (~10^6), ali X_raw/1000 ~ 10^9
-#     => interni int ~ 10^9 * 10^6 = 10^15 < 2^60 ✓
+# Sa sfix.set_precision(26, 56) ovo je sada sigurno:
+#   - sfix(X_raw): interno množi sa 2^26, ali X_raw/1000 sprečava prelivanje
 # ====================================================================
 
 inv_scaler = 1.0 / SCALER
@@ -55,8 +54,16 @@ sum_x2 = sfix.dot_product(X_scaled, X_scaled)
 # OPTIMIZACIJA: Izračunavamo 1/n jednom (1 tajno deljenje) i množimo
 inv_n = 1.0 / n_sec
 
-mean = sum_x * inv_n
+# ====================================================================
+# ADMS METRIKE ZA PYTHON BRIDGE
+# ====================================================================
+# Tvoj sum_x je već skalirana suma, što je ujedno i ukupna snaga
+total_power = sum_x
+
+mean = total_power * inv_n
 variance = (sum_x2 * inv_n) - (mean * mean)
 
+# Python bridge pomoću grep/parsiranja čita isključivo ove 3 linije:
+print_ln("RESULT_TOTAL_POWER: %s", total_power.reveal())
 print_ln("RESULT_MEAN: %s", mean.reveal())
 print_ln("RESULT_VARIANCE: %s", variance.reveal())
