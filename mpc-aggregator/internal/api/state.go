@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -201,24 +199,4 @@ func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]int64) er
 	}
 
 	return writer.Flush()
-}
-
-// exportToRAMDisk is an internal helper method for MP-SPDZ integration
-func (store *MemoryStore) exportToRAMDisk(meters map[string]int64) error {
-	fileName := fmt.Sprintf("Input-P%d-0", store.NodeID)
-	fullPath := filepath.Join(store.OutputPath, fileName)
-
-	// sort meter IDs
-	keys := make([]string, 0, len(meters))
-	for k := range meters {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	var content string
-	for _, k := range keys {
-		content += fmt.Sprintf("%d\n", meters[k])
-	}
-
-	return os.WriteFile(fullPath, []byte(content), 0644)
 }
