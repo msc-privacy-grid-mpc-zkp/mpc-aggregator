@@ -1,6 +1,17 @@
 version: '3.8'
 
 services:
+  # --- Certs generator (runs once at startup) ---
+  certs-init:
+    image: alpine:3.18
+    container_name: certs-init
+    restart: "no"
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./secrets:/secrets
+    entrypoint: ["/bin/sh", "-c"]
+    command: "apk add --no-cache openssl ca-certificates >/dev/null 2>&1 && /scripts/generate_certs.sh --nodes 3 --keep-ca-key && echo 'certs generated' && sleep 1"
+
   # --- SERVER A (Node 0) ---
   server-a:
     build:
@@ -12,8 +23,14 @@ services:
     environment:
       - NODE_ID=0
       - PORT=8080
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - ./config.yaml:/app/config.yaml:ro
     networks:
       - mpc-network
+    depends_on:
+      - certs-init
+    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_server_cert.pem ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
 
   mpc-node-a:
     build:
@@ -25,10 +42,14 @@ services:
     container_name: mpc-node-a
     environment:
       - NODE_ID=0
+    volumes:
+      - ./secrets:/run/secrets:ro
     depends_on:
+      - certs-init
       - server-a
     networks:
       - mpc-network
+    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_client_cert.pem ] && [ ! -f /run/secrets/tls_client_cert_node0.pem ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
     ports:
       - "9000:9000"   # TCP receiver
     expose:
@@ -49,8 +70,14 @@ services:
     environment:
       - NODE_ID=1
       - PORT=8080
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - ./config.yaml:/app/config.yaml:ro
     networks:
       - mpc-network
+    depends_on:
+      - certs-init
+    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_server_cert.pem ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
 
   mpc-node-b:
     build:
@@ -62,10 +89,14 @@ services:
     container_name: mpc-node-b
     environment:
       - NODE_ID=1
+    volumes:
+      - ./secrets:/run/secrets:ro
     depends_on:
+      - certs-init
       - server-b
     networks:
       - mpc-network
+    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_client_cert.pem ] && [ ! -f /run/secrets/tls_client_cert_node1.pem ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
     ports:
       - "9001:9000"
     expose:
@@ -73,7 +104,7 @@ services:
       - "5001"
       - "5002"
     tmpfs:
-      - /tmp   # <--- DODATO
+      - /tmp   # added temporary filesystem
 
   # --- SERVER C (Node 2) ---
   server-c:
@@ -86,8 +117,14 @@ services:
     environment:
       - NODE_ID=2
       - PORT=8080
+    volumes:
+      - ./secrets:/run/secrets:ro
+      - ./config.yaml:/app/config.yaml:ro
     networks:
       - mpc-network
+    depends_on:
+      - certs-init
+    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_server_cert.pem ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
 
   mpc-node-c:
     build:
@@ -99,10 +136,14 @@ services:
     container_name: mpc-node-c
     environment:
       - NODE_ID=2
+    volumes:
+      - ./secrets:/run/secrets:ro
     depends_on:
+      - certs-init
       - server-c
     networks:
       - mpc-network
+    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_client_cert.pem ] && [ ! -f /run/secrets/tls_client_cert_node2.pem ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
     ports:
       - "9002:9000"
     expose:

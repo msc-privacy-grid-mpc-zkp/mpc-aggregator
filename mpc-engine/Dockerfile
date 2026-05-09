@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Instalacija sistemskih zavisnosti uz minimalne pakete
+# 1. Install system dependencies and Python
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-dev python3-pip \
     git build-essential clang lld \
@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     automake libtool tox \
     iputils-ping netcat-openbsd curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Python requests for HTTPS client with client certs
+RUN pip3 install requests
 
 # 2. Plitko kloniranje repozitorijuma za brži build i manji image
 RUN git clone --depth 1 https://github.com/data61/MP-SPDZ.git /mp-spdz
@@ -35,14 +38,14 @@ RUN echo "CXX = clang++" > CONFIG.mine && \
 RUN make -j$(nproc) malicious-rep-ring-party.x
 
 # 7. Kopiranje tvog koda, skripti i kompilacija kola
-COPY ./src/variance.mpc ./Programs/Source/
+COPY ./src/aggregate_stats.mpc ./Programs/Source/
 COPY ./entrypoint.sh ./entrypoint.sh
 COPY ./tcp_receiver.py ./tcp_receiver.py
 
 # Spajamo chmod, sed i compile komande u jedan RUN sloj radi optimizacije imidža
 RUN chmod +x ./entrypoint.sh && \
-    sed -i "s/@@NUM_PARTIES@@/$NUM_PARTIES/g" ./Programs/Source/variance.mpc && \
+    sed -i "s/@@NUM_PARTIES@@/$NUM_PARTIES/g" ./Programs/Source/aggregate_stats.mpc && \
     # Dodata flag optimizacija u compile.py ako kolo to dozvoljava
-    ./compile.py -R 128 variance
+    ./compile.py -R 128 aggregate_stats
 
 ENTRYPOINT ["./entrypoint.sh"]

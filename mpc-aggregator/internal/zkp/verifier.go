@@ -12,8 +12,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// Креирамо базен (Pool) који рециклира Proof објекте.
-// Ово спречава Go Garbage Collector да се "гуши" приликом 10.000+ захтева.
 var proofPool = sync.Pool{
 	New: func() interface{} {
 		return groth16.NewProof(ecc.BN254)
@@ -21,13 +19,9 @@ var proofPool = sync.Pool{
 }
 
 func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyingKey groth16.VerifyingKey) error {
-	// 1. Узимамо празан Proof објекат из базена уместо да алоцирамо нови
 	proof := proofPool.Get().(groth16.Proof)
-
-	// 2. Враћамо га у базен када функција заврши
 	defer proofPool.Put(proof)
 
-	// Десеријализација преписује податке преко постојећег објекта
 	_, err := proof.ReadFrom(bytes.NewReader(proofBytes))
 	if err != nil {
 		return fmt.Errorf("failed to deserialize proof from bytes: %w", err)
@@ -44,8 +38,6 @@ func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyi
 		return fmt.Errorf("failed to create public witness: %w", err)
 	}
 
-	// Напомена: groth16.Verify је thread-safe за verifyingKey,
-	// тако да више HTTP рутина може паралелно звати ову функцију без Mutex-а.
 	err = groth16.Verify(proof, verifyingKey, publicWitness)
 	if err != nil {
 		return fmt.Errorf("cryptographic verification failed: %w", err)
@@ -64,7 +56,7 @@ func LoadVerifyingKey(filepath string) (groth16.VerifyingKey, error) {
 
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil {
-			log.Printf("[WARNING] Failed to close verifying key file '%s': %v\n", filepath, closeErr)
+			log.Printf("[WARNING] Failed to close verifying key file '%s': %v", filepath, closeErr)
 		}
 	}()
 

@@ -1,0 +1,22 @@
+# Example configuration for MPC Aggregator
+
+server:
+  port: "8080"
+  name: "MPC Node"
+
+zkp:
+  key_path: "keys/verifying.key"
+  max_limit: 10000
+
+aggregator:
+  expected_meters: 10
+  node_id: 0
+  output_path: "/dev/shm/mp-spdz"
+  scale_factor: 1000.0
+
+# Map client certificate CommonName (CN) to NodeID.
+# The CN values must match the certificate's Subject.CommonName used by mpc-node containers.
+client_cn_map:
+  mpc-client-node0: 0
+  mpc-client-node1: 1
+  mpc-client-node2: 2

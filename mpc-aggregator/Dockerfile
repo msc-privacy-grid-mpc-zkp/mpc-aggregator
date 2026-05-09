@@ -26,30 +26,30 @@ RUN go mod download
 # 4. Tek sada kopiramo ostatak koda
 COPY . .
 
-# DODATO: Neka Docker osveži zavisnosti pre bildovanja
+# NOTE: Refresh dependencies before building
 RUN go mod tidy
 
 # 5. Kompajliramo uz uklanjanje debug simbola (-ldflags="-s -w") za drastično manji fajl
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o mpc-server ./cmd/aggregator/main.go
 
-# --- STEP 2: Final stage (Scratch) ---
-# Koristimo 'scratch' (apsolutno prazan image, 0 MB overhead-a)
-FROM scratch
+# --- STEP 2: Final stage ---
+# Use a minimal alpine base to allow shell-based startup wrappers (wait-for-files)
+FROM alpine:3.18
+
+# Install CA certificates and timezone data
+RUN apk add --no-cache ca-certificates tzdata && update-ca-certificates
 
 WORKDIR /app/
 
-# 6. Kopiramo sistemske esencijale iz buildera u prazan prostor
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc/passwd /etc/passwd
-COPY --from=builder /etc/group /etc/group
-
-# 7. Kopiramo tvoj kod i fajlove
+# Copy runtime essentials from builder
 COPY --from=builder /app/mpc-server .
 COPY --from=builder /app/config.yaml ./config.yaml
 COPY --from=builder /app/keys ./keys
 
-# 8. Forsiramo izvršavanje pod non-root korisnikom
+# Create non-root user (mirror builder user to keep same UID)
+RUN addgroup -S appuser && adduser -S -G appuser -u 10001 appuser
+
+# Switch to non-root user
 USER appuser:appuser
 
 EXPOSE 8080

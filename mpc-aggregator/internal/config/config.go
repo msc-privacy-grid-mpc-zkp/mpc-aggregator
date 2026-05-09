@@ -9,9 +9,12 @@ import (
 )
 
 type AppConfig struct {
+	ClientCNToNode map[string]int `yaml:"client_cn_map"`
+
 	Server struct {
-		Port string `yaml:"port" env:"SERVER_PORT" env-default:"8080"`
-		Name string `yaml:"name" env:"SERVER_NAME" env-default:"MPC Node"`
+		Port    string `yaml:"port" env:"SERVER_PORT" env-default:"8080"`
+		Name    string `yaml:"name" env:"SERVER_NAME" env-default:"MPC Node"`
+		TLSPort string `yaml:"tls_port" env:"TLS_PORT" env-default:"8443"`
 	} `yaml:"server"`
 
 	ZKP struct {
