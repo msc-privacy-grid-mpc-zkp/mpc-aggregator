@@ -1,0 +1,68 @@
+program.use_edabit(True)
+
+# IMPORTANT: Set fixed-point precision BEFORE all operations
+# f=20 gives approx. precision ~1e-6, k=60 gives range up to ~500 billion
+# 2*k = 120 < 128 (ring size) - constraint satisfied
+sfix.set_precision(26, 56)
+sfix.round_nearest = True
+
+NUM_PARTIES = @@NUM_PARTIES@@
+MAX_METERS = 1000
+SCALER = 1000.0
+
+print_ln("=========== MPC START (Nodes: %s) ===========", NUM_PARTIES)
+
+# 1. Prikupljanje n_shares 
+n_shares = sint(0)
+for p in range(NUM_PARTIES):
+    p_n_share = sint.get_input_from(p)
+    print_ln("[DEBUG MPC] Node %s sent N-share: %s", p, p_n_share.reveal())
+    n_shares += p_n_share
+    
+n_sec = sfix(n_shares)
+print_ln("[DEBUG MPC] ===> Total number of meters (N): %s", n_shares.reveal())
+
+# 2. Vektorizovano prikupljanje ulaza 
+p0_x = sint.get_input_from(0, size=MAX_METERS)
+print_ln("[DEBUG MPC] Node 0 sent sum of shares: %s", sum(p0_x).reveal())
+X_raw = p0_x
+
+for p in range(1, NUM_PARTIES):
+    p_x = sint.get_input_from(p, size=MAX_METERS)
+    print_ln("[DEBUG MPC] Node %s sent sum of shares: %s", p, sum(p_x).reveal())
+    X_raw += p_x
+
+# Ukupna suma raw integera (prije ikakvog skaliranja ili prebacivanja u decimale)
+print_ln("[DEBUG MPC] ===> TOTAL RAW SUM BEFORE SCALING: %s", sum(X_raw).reveal())
+
+# ====================================================================
+# AVOIDING OVERFLOW:
+# Convert raw integers to fixed-point and scale early to reduce magnitude.
+# Multiplying by a constant (inv_scaler) is cheaper than performing divisions in MPC.
+# With sfix.set_precision(26, 56) this conversion is safe for our ranges.
+# ====================================================================
+
+inv_scaler = 1.0 / SCALER
+X_scaled = sfix(X_raw) * inv_scaler
+
+# Sada radimo sumu i dot_product nad skaliranim vrednostima.
+# Vrijednosti su sada oko 1.5 po elementu, kvadrati neće prelivati.
+sum_x = X_scaled.sum()
+sum_x2 = sfix.dot_product(X_scaled, X_scaled)
+
+# OPTIMIZACIJA: Izračunavamo 1/n jednom (1 tajno deljenje) i množimo
+inv_n = 1.0 / n_sec
+
+# ====================================================================
+# ADDITIONAL METRICS FOR PYTHON BRIDGE
+# ====================================================================
+# total_power is already scaled and represents the total power expected by the bridge
+total_power = sum_x
+
+mean = total_power * inv_n
+variance = (sum_x2 * inv_n) - (mean * mean)
+
+# The Python bridge parses exactly these three RESULT_ lines (do not change labels):
+print_ln("RESULT_TOTAL_POWER: %s", total_power.reveal())
+print_ln("RESULT_MEAN: %s", mean.reveal())
+print_ln("RESULT_VARIANCE: %s", variance.reveal())

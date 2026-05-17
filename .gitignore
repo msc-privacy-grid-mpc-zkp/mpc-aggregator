@@ -15,3 +15,6 @@ keys/
 .idea/
 .vscode/
 *.swp
+
+# Secrets
+secrets/

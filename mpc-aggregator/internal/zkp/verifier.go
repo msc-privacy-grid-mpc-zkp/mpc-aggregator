@@ -3,27 +3,37 @@ package zkp
 import (
 	"bytes"
 	"fmt"
+	"log"
+	"os"
+	"sync"
+
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
-	"log"
-	"os"
 )
 
+var proofPool = sync.Pool{
+	New: func() interface{} {
+		return groth16.NewProof(ecc.BN254)
+	},
+}
+
 func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyingKey groth16.VerifyingKey) error {
-	proof := groth16.NewProof(ecc.BN254)
+	proof := proofPool.Get().(groth16.Proof)
+	defer proofPool.Put(proof)
+
 	_, err := proof.ReadFrom(bytes.NewReader(proofBytes))
 	if err != nil {
 		return fmt.Errorf("failed to deserialize proof from bytes: %w", err)
 	}
 
-	assigment := &RangeProofCircuit{
+	assignment := &RangeProofCircuit{
 		MaxLimit:  maxLimit,
 		MeterID:   meterID,
 		Timestamp: timestamp,
 	}
 
-	publicWitness, err := frontend.NewWitness(assigment, ecc.BN254.ScalarField(), frontend.PublicOnly())
+	publicWitness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField(), frontend.PublicOnly())
 	if err != nil {
 		return fmt.Errorf("failed to create public witness: %w", err)
 	}
@@ -46,7 +56,7 @@ func LoadVerifyingKey(filepath string) (groth16.VerifyingKey, error) {
 
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil {
-			log.Printf("[WARNING] Failed to close verifying key file '%s': %v\n", filepath, closeErr)
+			log.Printf("[WARNING] Failed to close verifying key file '%s': %v", filepath, closeErr)
 		}
 	}()
 
