@@ -1,6 +1,9 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -102,13 +105,37 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 			return
 		}
 
+		// ZKP Integrity: Reject empty proofs immediately before cache check to save CPU cycles
+		if len(payload.Proof) == 0 {
+			log.Printf("[SECURITY] EMPTY PROOF REJECTED: meter=%s, timestamp=%d, remote_addr=%s", payload.MeterID, payload.Timestamp, r.RemoteAddr)
+			http.Error(w, "Empty proof not allowed", http.StatusBadRequest)
+			return
+		}
+
+		// Convert timestamp to uint64 for ZKP verification
+		// Must match the exact value used during proof generation in smart-meter-simulator
 		timestampUint := uint64(payload.Timestamp)
 		numericMeterID := stringToUint64(payload.MeterID)
 
+		// Verify proof with cryptographic binding and freshness check
+		// The circuit ensures MeterID and Timestamp are cryptographically bound to the proof.
+		// The verifier also checks that the timestamp is within +/- 60 seconds of current time.
+		// If an attacker replays a proof with a stale timestamp, verification will fail.
 		err := zkp.VerifyProof(payload.Proof, maxLimit, numericMeterID, timestampUint, verifyingKey)
 		if err != nil {
 			log.Printf("[SECURITY] Invalid proof from %s: %v", payload.MeterID, err)
 			http.Error(w, "Cryptographic proof validation failed", http.StatusForbidden)
+			return
+		}
+
+		// Compute proof hash for replay attack detection (constant-time friendly SHA-256)
+		// This provides an additional layer of protection against replay attacks
+		proofHash := computeProofHash(payload.Proof, payload.MeterID, payload.Timestamp)
+
+		// Check if proof has been seen before (replay attack detection) - atomic operation
+		if !store.ProofCache.CheckAndAdd(proofHash) {
+			log.Printf("[SECURITY] REPLAY ATTACK DETECTED: meter=%s, timestamp=%d, remote_addr=%s, total_rejected=%d", payload.MeterID, payload.Timestamp, r.RemoteAddr, store.ProofCache.GetRejectedReplayAttempts())
+			http.Error(w, "Duplicate proof detected", http.StatusForbidden)
 			return
 		}
 
@@ -186,4 +213,19 @@ func stringToUint64(s string) uint64 {
 		log.Printf("[WARNING] Failed to write to hash: %v", err)
 	}
 	return h.Sum64()
+}
+
+// computeProofHash computes a SHA-256 hash of the proof, meterID, and timestamp.
+// SHA-256 is constant-time and cryptographically secure, making it suitable for
+// replay attack detection. The hash combines all three components to ensure uniqueness.
+func computeProofHash(proofBytes []byte, meterID string, timestamp int64) string {
+	h := sha256.New()
+	// Write proof bytes (variable length)
+	h.Write(proofBytes)
+	// Write meter ID as UTF-8 bytes
+	h.Write([]byte(meterID))
+	// Write timestamp as big-endian 64-bit integer (constant 8 bytes)
+	binary.Write(h, binary.BigEndian, timestamp)
+	// Return hex-encoded digest (constant-time friendly)
+	return hex.EncodeToString(h.Sum(nil))
 }

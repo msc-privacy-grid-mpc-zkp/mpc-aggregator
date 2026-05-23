@@ -18,3 +18,5 @@ keys/
 
 # Secrets
 secrets/
+.aider*
+.env
