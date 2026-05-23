@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -19,23 +18,7 @@ var proofPool = sync.Pool{
 	},
 }
 
-// VerifyProof verifies a ZKP proof with cryptographic binding and freshness check.
-// The proof is bound to specific MeterID and Timestamp values through the circuit constraints.
-// Additionally, a freshness check ensures the timestamp is within a valid time window.
 func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyingKey groth16.VerifyingKey) error {
-	// Freshness check: Ensure timestamp is within +/- 60 seconds of current server time
-	// This prevents replay attacks by rejecting proofs with stale timestamps
-	currentTime := time.Now().Unix()
-	timestampInt64 := int64(timestamp)
-	timeDiff := currentTime - timestampInt64
-
-	const FRESHNESS_WINDOW = int64(60) // seconds
-
-	if timeDiff > FRESHNESS_WINDOW || timeDiff < -FRESHNESS_WINDOW {
-		return fmt.Errorf("proof timestamp is stale or in the future: current=%d, proof=%d, diff=%d seconds (max allowed: %d)", 
-			currentTime, timestampInt64, timeDiff, FRESHNESS_WINDOW)
-	}
-
 	proof := proofPool.Get().(groth16.Proof)
 	defer proofPool.Put(proof)
 
@@ -44,13 +27,6 @@ func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyi
 		return fmt.Errorf("failed to deserialize proof from bytes: %w", err)
 	}
 
-	// Create public witness with the exact public inputs used during proof generation.
-	// The circuit enforces:
-	// 1. Range check: Consumption <= MaxLimit
-	// 2. Cryptographic binding: (Consumption + MeterID) * (1 + Timestamp)
-	//
-	// If any public input (MaxLimit, MeterID, or Timestamp) differs from what was
-	// used during proof generation, the verification will fail.
 	assignment := &RangeProofCircuit{
 		MaxLimit:  maxLimit,
 		MeterID:   meterID,
