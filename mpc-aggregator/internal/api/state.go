@@ -17,7 +17,7 @@ import (
 
 type AggregationSession struct {
 	Count  int
-	Meters map[string]int64
+	Meters map[string]uint64 // Удели потрошње су већ исправно uint64
 }
 
 type MemoryStore struct {
@@ -43,14 +43,14 @@ func NewMemoryStore(ctx context.Context, expected int, nodeID int, outputPath st
 	return store
 }
 
-func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64) (bool, error) {
+func (store *MemoryStore) AddShare(timestamp int64, meterID string, share uint64) (bool, error) {
 	store.mu.Lock()
 
 	session, exists := store.Sessions[timestamp]
 	if !exists {
 		session = &AggregationSession{
 			Count:  0,
-			Meters: make(map[string]int64),
+			Meters: make(map[string]uint64),
 		}
 		store.Sessions[timestamp] = session
 	}
@@ -65,11 +65,11 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64)
 
 	log.Printf("[AGGREGATOR] Progress for timestamp %d: %d/%d meters", timestamp, session.Count, store.ExpectedMeters)
 
-	var metersToExport map[string]int64
+	var metersToExport map[string]uint64 // ПРОМЕЊЕНО: int64 у uint64
 
 	if session.Count == store.ExpectedMeters {
 		log.Printf("[DEBUG] Bucket full for timestamp: %d", timestamp)
-		var expectedTotal int64 = 0
+		var expectedTotal uint64 = 0 // ПРОМЕЊЕНО: int64 у uint64
 		for k, v := range session.Meters {
 			log.Printf("   -> Contains: %s = %d W", k, v)
 			expectedTotal += v
@@ -77,7 +77,7 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share int64)
 		log.Printf("[DEBUG] Total sum being sent to MPC: %d W", expectedTotal)
 		log.Println("-------------------------------------------------")
 
-		metersToExport = make(map[string]int64, len(session.Meters))
+		metersToExport = make(map[string]uint64, len(session.Meters)) // ПРОМЕЊЕНО: int64 у uint64
 		for k, v := range session.Meters {
 			metersToExport[k] = v
 		}
@@ -107,7 +107,7 @@ func (store *MemoryStore) cleanupStaleSessions() {
 			store.mu.Lock()
 			now := time.Now().Unix()
 
-			staleSessions := make(map[int64]map[string]int64)
+			staleSessions := make(map[int64]map[string]uint64) // ПРОМЕЊЕНО: унутрашња мапа у uint64
 
 			for timestamp, session := range store.Sessions {
 				if now-timestamp > 60 {
@@ -128,7 +128,8 @@ func (store *MemoryStore) cleanupStaleSessions() {
 	}
 }
 
-func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]int64) error {
+// ПРОМЕЊЕНО: параметар meters сада прима map[string]uint64 уместо map[string]int64
+func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]uint64) error {
 	addr := fmt.Sprintf("mpc-node-%c:9000", 'a'+store.NodeID)
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
@@ -183,7 +184,7 @@ func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]int64) er
 	buf.WriteByte('\n')
 
 	for _, k := range keys {
-		buf.WriteString(strconv.FormatInt(meters[k], 10))
+		buf.WriteString(strconv.FormatUint(meters[k], 10)) // ПРОМЕЊЕНО: FormatInt у FormatUint
 		buf.WriteByte('\n')
 	}
 
