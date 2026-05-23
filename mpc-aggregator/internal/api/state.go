@@ -20,6 +20,16 @@ type AggregationSession struct {
 	Meters map[string]int64
 }
 
+type ProofCacheEntry struct {
+	Timestamp int64
+}
+
+type ProofCache struct {
+	mu                     sync.RWMutex
+	cache                  map[string]ProofCacheEntry
+	rejectedReplayAttempts int64
+}
+
 type MemoryStore struct {
 	ctx            context.Context
 	mu             sync.Mutex
@@ -27,18 +37,26 @@ type MemoryStore struct {
 	ExpectedMeters int
 	NodeID         int
 	OutputPath     string
+	ProofCache     *ProofCache
 }
 
 func NewMemoryStore(ctx context.Context, expected int, nodeID int, outputPath string) *MemoryStore {
+	proofCache := &ProofCache{
+		cache:                  make(map[string]ProofCacheEntry),
+		rejectedReplayAttempts: 0,
+	}
+
 	store := &MemoryStore{
 		ctx:            ctx,
 		Sessions:       make(map[int64]*AggregationSession),
 		ExpectedMeters: expected,
 		NodeID:         nodeID,
 		OutputPath:     outputPath,
+		ProofCache:     proofCache,
 	}
 
 	go store.cleanupStaleSessions()
+	go store.cleanupStaleProofs()
 
 	return store
 }
@@ -126,6 +144,60 @@ func (store *MemoryStore) cleanupStaleSessions() {
 			}
 		}
 	}
+}
+
+func (store *MemoryStore) cleanupStaleProofs() {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-store.ctx.Done():
+			return
+		case <-ticker.C:
+			store.ProofCache.mu.Lock()
+			now := time.Now().Unix()
+			deletedCount := 0
+
+			for proofHash, entry := range store.ProofCache.cache {
+				if now-entry.Timestamp > 60 {
+					delete(store.ProofCache.cache, proofHash)
+					deletedCount++
+				}
+			}
+
+			if deletedCount > 0 {
+				log.Printf("[CLEANUP] Removed %d stale proof entries from cache", deletedCount)
+			}
+			store.ProofCache.mu.Unlock()
+		}
+	}
+}
+
+// CheckAndAdd atomically checks if a proof hash exists and adds it if not.
+// Returns true if the proof is new (not seen before), false if it's a replay.
+// This operation is strictly atomic under the mutex lock.
+func (cache *ProofCache) CheckAndAdd(proofHash string) bool {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if _, exists := cache.cache[proofHash]; exists {
+		cache.rejectedReplayAttempts++
+		return false
+	}
+
+	cache.cache[proofHash] = ProofCacheEntry{
+		Timestamp: time.Now().Unix(),
+	}
+	return true
+}
+
+// GetRejectedReplayAttempts returns the total count of rejected replay attempts.
+// This is thread-safe and can be called for metrics/telemetry purposes.
+func (cache *ProofCache) GetRejectedReplayAttempts() int64 {
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+	return cache.rejectedReplayAttempts
 }
 
 func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]int64) error {
