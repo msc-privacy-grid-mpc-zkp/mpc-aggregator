@@ -123,14 +123,14 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 
 		isComplete, err := store.AddShare(payload.Timestamp, payload.MeterID, payload.MeterShare)
 		if err != nil {
-			log.Printf("[ERROR] Failed to export data to RAM disk: %v", err)
-			http.Error(w, "Internal server error during data export", http.StatusInternalServerError)
+			log.Printf("[ERROR] Failed to add share for meter %s: %v", payload.MeterID, err)
+			http.Error(w, "Internal server error during data aggregation", http.StatusInternalServerError)
 			return
 		}
 
 		if isComplete {
 			log.Printf("[SUCCESS] Aggregation complete for timestamp: %d", payload.Timestamp)
-			log.Printf("[INFO] Data exported to RAM disk for MP-SPDZ")
+			log.Printf("[INFO] Data exported to MPC engine")
 		}
 
 		w.WriteHeader(http.StatusOK)
