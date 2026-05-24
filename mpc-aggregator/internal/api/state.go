@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+const (
+	BucketTimeoutDuration = 10 * time.Second
+	MinMeters             = 3
+)
+
 // Čuvamo i vreme kada je commitment dodat, kako bismo znali kada da ga obrišemo
 type commitmentData struct {
 	addedAt time.Time
@@ -69,8 +74,10 @@ func cleanupRoutine() {
 }
 
 type AggregationSession struct {
-	Count  int
-	Meters map[string]uint64 // Удели потрошње су већ исправно uint64
+	Count      int
+	Meters     map[string]uint64 // Удели потрошње су већ исправно uint64
+	CancelFunc context.CancelFunc // Za otkazivanje timeout goroutine-a
+	Closed     bool               // Zastavica da sprječimo dvostruko zatvaranje
 }
 
 type MemoryStore struct {
@@ -101,11 +108,23 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share uint64
 
 	session, exists := store.Sessions[timestamp]
 	if !exists {
+		// Kreiraj novu sesiju sa timeout-om
+		ctx, cancel := context.WithCancel(store.ctx)
 		session = &AggregationSession{
-			Count:  0,
-			Meters: make(map[string]uint64),
+			Count:      0,
+			Meters:     make(map[string]uint64),
+			CancelFunc: cancel,
+			Closed:     false,
 		}
 		store.Sessions[timestamp] = session
+
+		// Pokreni timeout goroutine za ovu sesiju
+		go store.bucketTimeoutHandler(ctx, timestamp)
+	}
+
+	if session.Closed {
+		store.mu.Unlock()
+		return false, fmt.Errorf("bucket for timestamp %d is already closed", timestamp)
 	}
 
 	if _, ok := session.Meters[meterID]; ok {
@@ -119,6 +138,7 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share uint64
 	log.Printf("[AGGREGATOR] Progress for timestamp %d: %d/%d meters", timestamp, session.Count, store.ExpectedMeters)
 
 	var metersToExport map[string]uint64 // ПРОМЕЊЕНО: int64 у uint64
+	var actualMeterCount int
 
 	if session.Count == store.ExpectedMeters {
 		log.Printf("[DEBUG] Bucket full for timestamp: %d", timestamp)
@@ -134,6 +154,13 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share uint64
 		for k, v := range session.Meters {
 			metersToExport[k] = v
 		}
+		actualMeterCount = len(session.Meters)
+
+		// Označi sesiju kao zatvorenu i otkaži timeout
+		session.Closed = true
+		if session.CancelFunc != nil {
+			session.CancelFunc()
+		}
 
 		delete(store.Sessions, timestamp)
 	}
@@ -141,7 +168,7 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share uint64
 	store.mu.Unlock()
 
 	if metersToExport != nil {
-		err := store.sendToMPC(timestamp, metersToExport)
+		err := store.sendToMPC(timestamp, metersToExport, actualMeterCount)
 		return true, err
 	}
 
@@ -158,31 +185,72 @@ func (store *MemoryStore) cleanupStaleSessions() {
 			return
 		case <-ticker.C:
 			store.mu.Lock()
-			now := time.Now().Unix()
 
-			staleSessions := make(map[int64]map[string]uint64) // ПРОМЕЊЕНО: унутрашња мапа у uint64
-
+			// Pronađi sve sesije koje su označene kao zatvorene i očisti ih
+			var closedTimestamps []int64
 			for timestamp, session := range store.Sessions {
-				if now-timestamp > 60 {
-					log.Printf("[CLEANUP] Session %d expired with %d/%d meters. Scheduling for MPC...", timestamp, session.Count, store.ExpectedMeters)
-					staleSessions[timestamp] = session.Meters
-					delete(store.Sessions, timestamp)
+				if session.Closed {
+					closedTimestamps = append(closedTimestamps, timestamp)
 				}
 			}
-			store.mu.Unlock()
 
-			for ts, meters := range staleSessions {
-				err := store.sendToMPC(ts, meters)
-				if err != nil {
-					log.Printf("[CLEANUP ERROR] Error sending expired session %d to MPC: %v", ts, err)
-				}
+			for _, ts := range closedTimestamps {
+				delete(store.Sessions, ts)
 			}
+
+			store.mu.Unlock()
 		}
 	}
 }
 
+// bucketTimeoutHandler čeka da timeout istekne ili da se bucket zatvori
+func (store *MemoryStore) bucketTimeoutHandler(ctx context.Context, timestamp int64) {
+	select {
+	case <-time.After(BucketTimeoutDuration):
+		// Timeout je istekao, provjeri bucket
+		store.mu.Lock()
+		session, exists := store.Sessions[timestamp]
+		if !exists || session.Closed {
+			store.mu.Unlock()
+			return
+		}
+
+		actualCount := session.Count
+
+		if actualCount < MinMeters {
+			log.Printf("[CLEANUP] Bucket for timestamp %d expired with %d meters (< MinMeters=%d). Discarding without MPC export.", timestamp, actualCount, MinMeters)
+			session.Closed = true
+			delete(store.Sessions, timestamp)
+			store.mu.Unlock()
+			return
+		}
+
+		// Ima dovoljno metar-a, izvezi u MPC
+		log.Printf("[CLEANUP] Bucket for timestamp %d expired with %d meters (>= MinMeters=%d). Exporting to MPC.", timestamp, actualCount, MinMeters)
+
+		metersToExport := make(map[string]uint64, len(session.Meters))
+		for k, v := range session.Meters {
+			metersToExport[k] = v
+		}
+
+		session.Closed = true
+		delete(store.Sessions, timestamp)
+		store.mu.Unlock()
+
+		err := store.sendToMPC(timestamp, metersToExport, actualCount)
+		if err != nil {
+			log.Printf("[CLEANUP ERROR] Error sending expired bucket %d to MPC: %v", timestamp, err)
+		}
+
+	case <-ctx.Done():
+		// Bucket je već zatvoren (dostigao je MaxMeters ili je otkazan)
+		return
+	}
+}
+
 // ПРОМЕЊЕНО: параметар meters сада прима map[string]uint64 уместо map[string]int64
-func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]uint64) error {
+// actualMeterCount je stvaran broj metar-a u bucket-u (može biti < MaxMeters ako je timeout istekao)
+func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]uint64, actualMeterCount int) error {
 	addr := fmt.Sprintf("mpc-node-%c:9000", 'a'+store.NodeID)
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	if err != nil {
@@ -202,7 +270,7 @@ func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]uint64) e
 	sort.Strings(keys)
 
 	const MAX_METERS = 1000
-	actualCount := int64(len(meters))
+	actualCount := int64(actualMeterCount)
 
 	h := sha256.New()
 	binary.Write(h, binary.BigEndian, timestamp)
