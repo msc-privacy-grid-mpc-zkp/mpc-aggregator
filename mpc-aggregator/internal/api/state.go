@@ -15,6 +15,59 @@ import (
 	"time"
 )
 
+// Čuvamo i vreme kada je commitment dodat, kako bismo znali kada da ga obrišemo
+type commitmentData struct {
+	addedAt time.Time
+}
+
+var (
+	usedCommitments = make(map[string]commitmentData)
+	stateMutex      sync.Mutex
+)
+
+// init funkcija se u Go-u pokreće automatski pri startu aplikacije.
+// Ovde pokrećemo "čistač" u pozadini (background goroutine).
+func init() {
+	go cleanupRoutine()
+}
+
+func ValidateReplay(commitment string, timestamp uint64) bool {
+	if time.Now().Unix()-int64(timestamp) > 300 { // 5 minuta prozor
+		return false
+	}
+
+	stateMutex.Lock()
+	defer stateMutex.Unlock()
+
+	_, exists := usedCommitments[commitment]
+	return !exists // Vraća true ako heš NIJE viđen
+}
+
+func MarkAsUsed(commitment string) {
+	stateMutex.Lock()
+	defer stateMutex.Unlock()
+	usedCommitments[commitment] = commitmentData{
+		addedAt: time.Now(),
+	}
+}
+
+// cleanupRoutine se budi svakih 5 minuta i briše stare heševe, oslobađajući RAM.
+func cleanupRoutine() {
+	for {
+		time.Sleep(5 * time.Minute)
+
+		stateMutex.Lock()
+		now := time.Now()
+		for hash, data := range usedCommitments {
+			// Ako je heš stariji od 5 minuta, bezbedno je obrisati ga
+			if now.Sub(data.addedAt) > 5*time.Minute {
+				delete(usedCommitments, hash)
+			}
+		}
+		stateMutex.Unlock()
+	}
+}
+
 type AggregationSession struct {
 	Count  int
 	Meters map[string]uint64 // Удели потрошње су већ исправно uint64

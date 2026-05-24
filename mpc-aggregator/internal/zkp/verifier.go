@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"sync"
 
@@ -18,19 +19,22 @@ var proofPool = sync.Pool{
 	},
 }
 
-func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyingKey groth16.VerifyingKey) error {
-	proof := proofPool.Get().(groth16.Proof)
-	defer proofPool.Put(proof)
+func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, commitmentBytes []byte, verifyingKey groth16.VerifyingKey) error {
+	// 1. Uvek instanciramo potpuno nov, čist objekat za dokaz
+	proof := groth16.NewProof(ecc.BN254)
 
-	_, err := proof.ReadFrom(bytes.NewReader(proofBytes))
-	if err != nil {
+	// 2. Čitamo bajtove sa mreže
+	if _, err := proof.ReadFrom(bytes.NewReader(proofBytes)); err != nil {
 		return fmt.Errorf("failed to deserialize proof from bytes: %w", err)
 	}
 
+	// 3. Pripremamo javne parametre (uz dodatak praznog tajnog parametra radi sigurnosti kompajlera)
 	assignment := &RangeProofCircuit{
-		MaxLimit:  maxLimit,
-		MeterID:   meterID,
-		Timestamp: timestamp,
+		Consumption: 0, // Gnark ovo ignoriše jer nije public, ali sprečava nil pointere u refleksiji
+		MaxLimit:    maxLimit,
+		MeterID:     meterID,
+		Timestamp:   timestamp,
+		Commitment:  new(big.Int).SetBytes(commitmentBytes),
 	}
 
 	publicWitness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField(), frontend.PublicOnly())
@@ -38,8 +42,8 @@ func VerifyProof(proofBytes []byte, maxLimit, meterID, timestamp uint64, verifyi
 		return fmt.Errorf("failed to create public witness: %w", err)
 	}
 
-	err = groth16.Verify(proof, verifyingKey, publicWitness)
-	if err != nil {
+	// 4. Verifikacija
+	if err = groth16.Verify(proof, verifyingKey, publicWitness); err != nil {
 		return fmt.Errorf("cryptographic verification failed: %w", err)
 	}
 
