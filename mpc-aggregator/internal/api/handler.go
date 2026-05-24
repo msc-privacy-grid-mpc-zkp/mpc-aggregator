@@ -21,6 +21,7 @@ type ProofPayload struct {
 	Timestamp  int64  `json:"timestamp"`
 	MeterShare uint64 `json:"meter_share"`
 	Proof      []byte `json:"proof"`
+	Commitment []byte `json:"commitment"`
 }
 
 type ResultPayload struct {
@@ -105,12 +106,20 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 		timestampUint := uint64(payload.Timestamp)
 		numericMeterID := stringToUint64(payload.MeterID)
 
-		err := zkp.VerifyProof(payload.Proof, maxLimit, numericMeterID, timestampUint, verifyingKey)
+		if !ValidateReplay(string(payload.Commitment), timestampUint) {
+			log.Printf("[SECURITY] Replay attack detected or proof expired for meter: %s", payload.MeterID)
+			http.Error(w, "Replay attack detected or proof expired", http.StatusUnauthorized)
+			return
+		}
+
+		err := zkp.VerifyProof(payload.Proof, maxLimit, numericMeterID, timestampUint, payload.Commitment, verifyingKey)
 		if err != nil {
 			log.Printf("[SECURITY] Invalid proof from %s: %v", payload.MeterID, err)
 			http.Error(w, "Cryptographic proof validation failed", http.StatusForbidden)
 			return
 		}
+
+		MarkAsUsed(string(payload.Commitment))
 
 		isComplete, err := store.AddShare(payload.Timestamp, payload.MeterID, payload.MeterShare)
 		if err != nil {
