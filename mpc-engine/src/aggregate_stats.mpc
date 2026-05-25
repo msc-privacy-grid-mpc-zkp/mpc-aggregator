@@ -59,7 +59,8 @@ sum_x2 = sfix.dot_product(X_clean, X_clean)
 n_is_safe = n_sec > sfix(1)
 
 # The divisor must physically never be 0 in any evaluation branch
-safe_divisor = sfix.if_else(n_is_safe, n_sec, sfix(1.0))
+# Use conditional multiplication: if n_is_safe=1, use n_sec; if n_is_safe=0, use 1.0
+safe_divisor = n_sec * sfix(n_is_safe) + sfix(1.0) * (1 - sfix(n_is_safe))
 inv_n_unsafe = 1.0 / safe_divisor
 
 # If n_sec <= 1, inv_n_safe becomes 0.0
