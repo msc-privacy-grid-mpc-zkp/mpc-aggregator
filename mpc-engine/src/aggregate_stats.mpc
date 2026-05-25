@@ -46,6 +46,14 @@ is_positive = (X_scaled >= sfix(0.0))
 is_not_huge = (X_scaled <= MAX_ALLOWED_SCALED)
 is_valid_input = is_positive * is_not_huge
 
+# Count poisoned inputs for audit logging
+# poisoned_count = sum of (1 - is_valid_input) across all inputs
+poisoned_flags = 1 - is_valid_input
+poisoned_count = sum(poisoned_flags)
+
+# Log if any poisoning was detected
+print_ln("[SECURITY AUDIT MPC] Poisoned inputs detected: %s", poisoned_count.reveal())
+
 # Sanitization: Poisoned data becomes 0.0, honest data remains intact. 
 X_clean = X_scaled * is_valid_input
 

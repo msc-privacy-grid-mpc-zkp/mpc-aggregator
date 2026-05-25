@@ -182,6 +182,19 @@ while True:
         if mean_clean < 0.0 or mean_clean > 10000.0:
             logger.warning(f"[SECURITY WARNING] Data Poisoning detected: mean={mean_clean}W is outside valid range [0, 10000]W")
 
+        # ====================================================================
+        # SECURITY AUDIT: Detect if poisoning was neutralized at MPC core
+        # ====================================================================
+        # If mean is 0.0 but we expected data (lines were received), it suggests
+        # all inputs were neutralized due to poisoning detection
+        if mean_clean == 0.0 and len(lines) > 0:
+            logger.warning("[SECURITY AUDIT] Data Poisoning attempt detected and neutralized at MPC core: mean=0.0 with non-empty input batch")
+        
+        # If total_power is abnormally low compared to expected participants,
+        # it may indicate significant poisoning was filtered out
+        if total_power_clean < 1.0 and len(lines) > 10:
+            logger.warning(f"[SECURITY AUDIT] Suspicious low total_power={total_power_clean}W detected with {len(lines)} input lines; possible mass poisoning neutralized")
+
         logger.info(f"[INFO] Results Parsed: Total={total_power_clean}W, Mean={mean_clean}W, Var={variance_clean}")
 
         payload = {
