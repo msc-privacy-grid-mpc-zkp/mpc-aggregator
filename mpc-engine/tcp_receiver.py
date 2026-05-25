@@ -192,6 +192,13 @@ while True:
             logger.warning(f"[SECURITY AUDIT] Data Poisoning attempt detected! Neutralized {poisoned_count_clean} inputs.")
 
         # ====================================================================
+        # VARIANCE SANITY CHECK: Negative variance is mathematically impossible
+        # ====================================================================
+        if variance_clean < 0.0:
+            logger.warning(f"[SECURITY AUDIT] Negative variance detected: {variance_clean}W (numerical error or corruption); clamping to 0.0")
+            variance_clean = 0.0
+
+        # ====================================================================
         # SECURITY AUDIT: Detect if poisoning was neutralized at MPC core
         # ====================================================================
         # If mean is 0.0 but we expected data (lines were received), it suggests
@@ -205,6 +212,21 @@ while True:
             logger.warning(f"[SECURITY AUDIT] Suspicious low total_power={total_power_clean}W detected with {len(lines)} input lines; possible mass poisoning neutralized")
 
         logger.info(f"[INFO] Results Parsed: Total={total_power_clean}W, Mean={mean_clean}W, Var={variance_clean}")
+
+        # ====================================================================
+        # FINAL SANITY CHECK: Ensure all values are within reasonable bounds
+        # ====================================================================
+        if total_power_clean < 0.0:
+            logger.warning(f"[SECURITY AUDIT] Negative total_power detected: {total_power_clean}W; clamping to 0.0")
+            total_power_clean = 0.0
+        
+        if mean_clean < 0.0:
+            logger.warning(f"[SECURITY AUDIT] Negative mean detected: {mean_clean}W; clamping to 0.0")
+            mean_clean = 0.0
+        
+        if mean_clean > 10000.0:
+            logger.warning(f"[SECURITY AUDIT] Mean exceeds physical limit: {mean_clean}W; clamping to 10000.0")
+            mean_clean = 10000.0
 
         payload = {
             "node_id": int(NODE_ID),

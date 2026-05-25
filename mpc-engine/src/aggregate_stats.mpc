@@ -83,8 +83,15 @@ total_power = sum_x
 mean = total_power * inv_n_safe
 
 # If n_is_safe == 0, variance will be 0.0
-variance = (sum_x2 * inv_n_safe) - (mean * mean)
-variance = variance * sfix(n_is_safe)
+variance_raw = (sum_x2 * inv_n_safe) - (mean * mean)
+variance_raw = variance_raw * sfix(n_is_safe)
+
+# ====================================================================
+# VARIANCE SANITY CHECK: Prevent negative variance due to numerical errors
+# ====================================================================
+# Variance cannot be negative mathematically. If it is, clamp to 0.0
+variance_is_negative = variance_raw < sfix(0.0)
+variance = variance_raw * (1 - sfix(variance_is_negative)) + sfix(0.0) * sfix(variance_is_negative)
 
 print_ln("RESULT_TOTAL_POWER: %s", total_power.reveal())
 print_ln("RESULT_MEAN: %s", mean.reveal())

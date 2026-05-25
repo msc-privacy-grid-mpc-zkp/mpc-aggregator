@@ -143,10 +143,23 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share uint64
 	if session.Count == store.ExpectedMeters {
 		log.Printf("[DEBUG] Bucket full for timestamp: %d", timestamp)
 		var expectedTotal uint64 = 0 // ПРОМЕЊЕНО: int64 у uint64
+		var overflowDetected bool = false
+		
 		for k, v := range session.Meters {
 			log.Printf("   -> Contains: %s = %d W", k, v)
+			
+			// Check for overflow: if adding v would exceed max uint64, flag it
+			if expectedTotal > ^uint64(0)-v {
+				log.Printf("[SECURITY WARNING] Potential uint64 overflow detected for meter %s with value %d W", k, v)
+				overflowDetected = true
+			}
 			expectedTotal += v
 		}
+		
+		if overflowDetected {
+			log.Printf("[SECURITY AUDIT] Overflow detected in aggregation for timestamp %d; total may be corrupted", timestamp)
+		}
+		
 		log.Printf("[DEBUG] Total sum being sent to MPC: %d W", expectedTotal)
 		log.Println("-------------------------------------------------")
 
