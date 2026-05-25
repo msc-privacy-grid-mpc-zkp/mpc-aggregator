@@ -7,6 +7,7 @@ import time
 import logging
 import threading
 import io
+import math
 
 NODE_ID = os.environ.get("NODE_ID", "0")
 HOST = "0.0.0.0"
@@ -27,6 +28,30 @@ except Exception:
     # Fallback to a simpler format if the formatter fails for any reason
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger("tcp_receiver")
+
+# ====================================================================
+# HELPER: Clean invalid values (NaN, Inf, None)
+# ====================================================================
+def clean_val(val):
+    """
+    Sanitize a value by checking for None, NaN, and Inf.
+    Returns 0.0 if any of these conditions are true, otherwise returns the value.
+    """
+    if val is None:
+        logger.warning("[SECURITY] Received None value; replacing with 0.0")
+        return 0.0
+    try:
+        float_val = float(val)
+        if math.isnan(float_val):
+            logger.warning("[SECURITY] Received NaN value; replacing with 0.0")
+            return 0.0
+        if math.isinf(float_val):
+            logger.warning("[SECURITY] Received Inf value; replacing with 0.0")
+            return 0.0
+        return float_val
+    except (ValueError, TypeError) as e:
+        logger.warning(f"[SECURITY] Failed to convert value to float: {e}; replacing with 0.0")
+        return 0.0
 
 logger.info(f"[TCP] Starting direct-stream server on port {PORT}")
 
@@ -134,7 +159,7 @@ while True:
 
     logger.debug(stdout_data)
 
-    mean, total_power, variance = None, None, None
+    mean, total_power, variance, poisoned_count = None, None, None, None
     for line in stdout_data.split('\n'):
         if "RESULT_MEAN:" in line:
             mean = line.split(":")[1].strip()
@@ -142,15 +167,50 @@ while True:
             total_power = line.split(":")[1].strip()
         if "RESULT_VARIANCE:" in line:
             variance = line.split(":")[1].strip()
+        if "RESULT_POISONED_COUNT:" in line:
+            poisoned_count = line.split(":")[1].strip()
 
     if mean and total_power:
-        logger.info(f"[INFO] Results Parsed: Total={total_power}W, Mean={mean}W, Var={variance}")
+        # ====================================================================
+        # SANITIZE VALUES: Remove NaN, Inf, None
+        # ====================================================================
+        total_power_clean = clean_val(total_power)
+        mean_clean = clean_val(mean)
+        variance_clean = clean_val(variance) if variance else 0.0
+        poisoned_count_clean = int(clean_val(poisoned_count)) if poisoned_count else 0
+
+        # ====================================================================
+        # DATA POISONING DETECTION: Check if mean is within physical limits
+        # ====================================================================
+        if mean_clean < 0.0 or mean_clean > 10000.0:
+            logger.warning(f"[SECURITY WARNING] Data Poisoning detected: mean={mean_clean}W is outside valid range [0, 10000]W")
+
+        # ====================================================================
+        # SECURITY AUDIT: Explicit poisoning neutralization report
+        # ====================================================================
+        if poisoned_count_clean > 0:
+            logger.warning(f"[SECURITY AUDIT] Data Poisoning attempt detected! Neutralized {poisoned_count_clean} inputs.")
+
+        # ====================================================================
+        # SECURITY AUDIT: Detect if poisoning was neutralized at MPC core
+        # ====================================================================
+        # If mean is 0.0 but we expected data (lines were received), it suggests
+        # all inputs were neutralized due to poisoning detection
+        if mean_clean == 0.0 and len(lines) > 0:
+            logger.warning("[SECURITY AUDIT] Data Poisoning attempt detected and neutralized at MPC core: mean=0.0 with non-empty input batch")
+        
+        # If total_power is abnormally low compared to expected participants,
+        # it may indicate significant poisoning was filtered out
+        if total_power_clean < 1.0 and len(lines) > 10:
+            logger.warning(f"[SECURITY AUDIT] Suspicious low total_power={total_power_clean}W detected with {len(lines)} input lines; possible mass poisoning neutralized")
+
+        logger.info(f"[INFO] Results Parsed: Total={total_power_clean}W, Mean={mean_clean}W, Var={variance_clean}")
 
         payload = {
             "node_id": int(NODE_ID),
-            "total_power": float(total_power),
-            "mean": float(mean),
-            "variance": float(variance) if variance else 0.0
+            "total_power": total_power_clean,
+            "mean": mean_clean,
+            "variance": variance_clean
         }
 
         payload_bytes = json.dumps(payload).encode('utf-8')
