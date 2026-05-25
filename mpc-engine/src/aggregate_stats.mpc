@@ -54,9 +54,13 @@ sum_x2 = sfix.dot_product(X_scaled, X_scaled)
 # DIVISION-BY-ZERO PROTECTION
 # ====================================================================
 # If n_sec <= 1, we cannot safely compute mean/variance (need at least 2 meters for variance)
-# Use sfix.if_else to conditionally set inv_n_safe to 0 if n_sec <= 1
+# Use conditional logic: if n_sec > 1, compute inv_n, else set to 0
 n_is_safe = n_sec > sfix(1)
-inv_n_safe = sfix.if_else(n_is_safe, 1.0 / n_sec, sfix(0))
+
+# Compute inverse only when safe; otherwise use 0
+# We use multiplication by the condition (0 or 1) to achieve conditional behavior
+inv_n_unsafe = 1.0 / n_sec
+inv_n_safe = inv_n_unsafe * sfix(n_is_safe)
 
 # ====================================================================
 # ADDITIONAL METRICS FOR PYTHON BRIDGE
@@ -71,13 +75,23 @@ variance_raw = (sum_x2 * inv_n_safe) - (mean * mean)
 # DATA POISONING PROTECTION: SANITY CHECK ON MEAN
 # ====================================================================
 # Physical limit: each meter is 0-10,000 W, so mean must be in [0, 10000]
-# If mean < 0 or mean > 10000, clip it to the boundary (or 0 for safety)
-mean_is_valid = (mean >= sfix(0)) & (mean <= sfix(10000.0))
-mean_clipped = sfix.if_else(mean < sfix(0), sfix(0), mean)
-mean_clipped = sfix.if_else(mean_clipped > sfix(10000.0), sfix(10000.0), mean_clipped)
+# Clip mean to [0, 10000] range using conditional multiplication
+# If mean < 0, set to 0; if mean > 10000, set to 10000
+
+mean_too_low = mean < sfix(0)
+mean_too_high = mean > sfix(10000.0)
+
+# Start with original mean
+mean_clipped = mean
+
+# If mean < 0, replace with 0
+mean_clipped = mean_clipped * (1 - sfix(mean_too_low)) + sfix(0) * sfix(mean_too_low)
+
+# If mean > 10000, replace with 10000
+mean_clipped = mean_clipped * (1 - sfix(mean_too_high)) + sfix(10000.0) * sfix(mean_too_high)
 
 # If n_sec <= 1, also force variance to 0 (undefined)
-variance = sfix.if_else(n_is_safe, variance_raw, sfix(0))
+variance = variance_raw * sfix(n_is_safe)
 
 # The Python bridge parses exactly these three RESULT_ lines (do not change labels):
 print_ln("RESULT_TOTAL_POWER: %s", total_power.reveal())
