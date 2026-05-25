@@ -159,7 +159,7 @@ while True:
 
     logger.debug(stdout_data)
 
-    mean, total_power, variance = None, None, None
+    mean, total_power, variance, poisoned_count = None, None, None, None
     for line in stdout_data.split('\n'):
         if "RESULT_MEAN:" in line:
             mean = line.split(":")[1].strip()
@@ -167,6 +167,8 @@ while True:
             total_power = line.split(":")[1].strip()
         if "RESULT_VARIANCE:" in line:
             variance = line.split(":")[1].strip()
+        if "RESULT_POISONED_COUNT:" in line:
+            poisoned_count = line.split(":")[1].strip()
 
     if mean and total_power:
         # ====================================================================
@@ -175,12 +177,19 @@ while True:
         total_power_clean = clean_val(total_power)
         mean_clean = clean_val(mean)
         variance_clean = clean_val(variance) if variance else 0.0
+        poisoned_count_clean = int(clean_val(poisoned_count)) if poisoned_count else 0
 
         # ====================================================================
         # DATA POISONING DETECTION: Check if mean is within physical limits
         # ====================================================================
         if mean_clean < 0.0 or mean_clean > 10000.0:
             logger.warning(f"[SECURITY WARNING] Data Poisoning detected: mean={mean_clean}W is outside valid range [0, 10000]W")
+
+        # ====================================================================
+        # SECURITY AUDIT: Explicit poisoning neutralization report
+        # ====================================================================
+        if poisoned_count_clean > 0:
+            logger.warning(f"[SECURITY AUDIT] Data Poisoning attempt detected! Neutralized {poisoned_count_clean} inputs.")
 
         # ====================================================================
         # SECURITY AUDIT: Detect if poisoning was neutralized at MPC core
