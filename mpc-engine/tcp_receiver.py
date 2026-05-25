@@ -7,6 +7,7 @@ import time
 import logging
 import threading
 import io
+import math
 
 NODE_ID = os.environ.get("NODE_ID", "0")
 HOST = "0.0.0.0"
@@ -27,6 +28,30 @@ except Exception:
     # Fallback to a simpler format if the formatter fails for any reason
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger("tcp_receiver")
+
+# ====================================================================
+# HELPER: Clean invalid values (NaN, Inf, None)
+# ====================================================================
+def clean_val(val):
+    """
+    Sanitize a value by checking for None, NaN, and Inf.
+    Returns 0.0 if any of these conditions are true, otherwise returns the value.
+    """
+    if val is None:
+        logger.warning("[SECURITY] Received None value; replacing with 0.0")
+        return 0.0
+    try:
+        float_val = float(val)
+        if math.isnan(float_val):
+            logger.warning("[SECURITY] Received NaN value; replacing with 0.0")
+            return 0.0
+        if math.isinf(float_val):
+            logger.warning("[SECURITY] Received Inf value; replacing with 0.0")
+            return 0.0
+        return float_val
+    except (ValueError, TypeError) as e:
+        logger.warning(f"[SECURITY] Failed to convert value to float: {e}; replacing with 0.0")
+        return 0.0
 
 logger.info(f"[TCP] Starting direct-stream server on port {PORT}")
 
@@ -144,13 +169,26 @@ while True:
             variance = line.split(":")[1].strip()
 
     if mean and total_power:
-        logger.info(f"[INFO] Results Parsed: Total={total_power}W, Mean={mean}W, Var={variance}")
+        # ====================================================================
+        # SANITIZE VALUES: Remove NaN, Inf, None
+        # ====================================================================
+        total_power_clean = clean_val(total_power)
+        mean_clean = clean_val(mean)
+        variance_clean = clean_val(variance) if variance else 0.0
+
+        # ====================================================================
+        # DATA POISONING DETECTION: Check if mean is within physical limits
+        # ====================================================================
+        if mean_clean < 0.0 or mean_clean > 10000.0:
+            logger.warning(f"[SECURITY WARNING] Data Poisoning detected: mean={mean_clean}W is outside valid range [0, 10000]W")
+
+        logger.info(f"[INFO] Results Parsed: Total={total_power_clean}W, Mean={mean_clean}W, Var={variance_clean}")
 
         payload = {
             "node_id": int(NODE_ID),
-            "total_power": float(total_power),
-            "mean": float(mean),
-            "variance": float(variance) if variance else 0.0
+            "total_power": total_power_clean,
+            "mean": mean_clean,
+            "variance": variance_clean
         }
 
         payload_bytes = json.dumps(payload).encode('utf-8')

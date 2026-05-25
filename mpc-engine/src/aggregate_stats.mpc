@@ -50,8 +50,13 @@ X_scaled = sfix(X_raw) * inv_scaler
 sum_x = X_scaled.sum()
 sum_x2 = sfix.dot_product(X_scaled, X_scaled)
 
-# OPTIMIZACIJA: Izračunavamo 1/n jednom (1 tajno deljenje) i množimo
-inv_n = 1.0 / n_sec
+# ====================================================================
+# DIVISION-BY-ZERO PROTECTION
+# ====================================================================
+# If n_sec <= 1, we cannot safely compute mean/variance (need at least 2 meters for variance)
+# Use sfix.if_else to conditionally set inv_n_safe to 0 if n_sec <= 1
+n_is_safe = n_sec > sfix(1)
+inv_n_safe = sfix.if_else(n_is_safe, 1.0 / n_sec, sfix(0))
 
 # ====================================================================
 # ADDITIONAL METRICS FOR PYTHON BRIDGE
@@ -59,10 +64,22 @@ inv_n = 1.0 / n_sec
 # total_power is already scaled and represents the total power expected by the bridge
 total_power = sum_x
 
-mean = total_power * inv_n
-variance = (sum_x2 * inv_n) - (mean * mean)
+mean = total_power * inv_n_safe
+variance_raw = (sum_x2 * inv_n_safe) - (mean * mean)
+
+# ====================================================================
+# DATA POISONING PROTECTION: SANITY CHECK ON MEAN
+# ====================================================================
+# Physical limit: each meter is 0-10,000 W, so mean must be in [0, 10000]
+# If mean < 0 or mean > 10000, clip it to the boundary (or 0 for safety)
+mean_is_valid = (mean >= sfix(0)) & (mean <= sfix(10000.0))
+mean_clipped = sfix.if_else(mean < sfix(0), sfix(0), mean)
+mean_clipped = sfix.if_else(mean_clipped > sfix(10000.0), sfix(10000.0), mean_clipped)
+
+# If n_sec <= 1, also force variance to 0 (undefined)
+variance = sfix.if_else(n_is_safe, variance_raw, sfix(0))
 
 # The Python bridge parses exactly these three RESULT_ lines (do not change labels):
 print_ln("RESULT_TOTAL_POWER: %s", total_power.reveal())
-print_ln("RESULT_MEAN: %s", mean.reveal())
+print_ln("RESULT_MEAN: %s", mean_clipped.reveal())
 print_ln("RESULT_VARIANCE: %s", variance.reveal())
