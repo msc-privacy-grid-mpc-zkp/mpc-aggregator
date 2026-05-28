@@ -39,7 +39,7 @@ inv_scaler = 1.0 / SCALER
 X_scaled = sfix(X_raw) * inv_scaler
 
 # SANITY CHECK: Each meter must be in range [0, 10000] W (scaled to [0, 10.0])
-MAX_ALLOWED_SCALED = sfix(10.0)
+MAX_ALLOWED_SCALED = sfix(10.0) + sfix(0.0001)
 
 # Secret vectorized checks: 1 if valid, 0 if poisoned
 is_positive = (X_scaled >= sfix(0.0))
@@ -83,8 +83,15 @@ total_power = sum_x
 mean = total_power * inv_n_safe
 
 # If n_is_safe == 0, variance will be 0.0
-variance = (sum_x2 * inv_n_safe) - (mean * mean)
-variance = variance * sfix(n_is_safe)
+variance_raw = (sum_x2 * inv_n_safe) - (mean * mean)
+variance_raw = variance_raw * sfix(n_is_safe)
+
+# ====================================================================
+# VARIANCE SANITY CHECK: Prevent negative variance due to numerical errors
+# ====================================================================
+# Variance cannot be negative mathematically. If it is, clamp to 0.0
+variance_is_negative = variance_raw < sfix(0.0)
+variance = variance_raw * (1 - sfix(variance_is_negative)) + sfix(0.0) * sfix(variance_is_negative)
 
 print_ln("RESULT_TOTAL_POWER: %s", total_power.reveal())
 print_ln("RESULT_MEAN: %s", mean.reveal())
