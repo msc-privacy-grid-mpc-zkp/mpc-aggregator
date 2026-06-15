@@ -1,9 +1,10 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"log"
 	"net/http"
@@ -190,9 +191,8 @@ func HandleMPCResults(scaleFactor float64, cfg *config.AppConfig) http.HandlerFu
 }
 
 func stringToUint64(s string) uint64 {
-	h := fnv.New64a()
-	if _, err := h.Write([]byte(s)); err != nil {
-		log.Printf("[WARNING] Failed to write to hash: %v", err)
-	}
-	return h.Sum64()
+	// Računa SHA-256 heš i uzima prvih 8 bajtova (big-endian)
+	sum := sha256.Sum256([]byte(s))
+
+	return binary.BigEndian.Uint64(sum[:8])
 }
