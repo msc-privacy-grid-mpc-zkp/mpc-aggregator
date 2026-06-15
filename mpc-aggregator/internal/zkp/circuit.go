@@ -20,6 +20,9 @@ type RangeProofCircuit struct {
 func (circuit *RangeProofCircuit) Define(api frontend.API) error {
 	api.ToBinary(circuit.MaxLimit, 32)
 	api.AssertIsLessOrEqual(circuit.Consumption, circuit.MaxLimit)
+	// Enforce 64-bit decomposition for MaxLimit and Consumption to match uint64 semantics
+	api.ToBinary(circuit.MaxLimit, 64)
+	api.ToBinary(circuit.Consumption, 64)
 
 	// Kreiraj MiMC za krug
 	h, err := mimc.NewMiMC(api)
