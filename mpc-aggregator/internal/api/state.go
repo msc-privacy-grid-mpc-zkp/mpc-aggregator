@@ -75,7 +75,7 @@ func cleanupRoutine() {
 
 type AggregationSession struct {
 	Count      int
-	Meters     map[string]uint64 // Удели потрошње су већ исправно uint64
+	Meters     map[string]uint64  // Удели потрошње су већ исправно uint64
 	CancelFunc context.CancelFunc // Za otkazivanje timeout goroutine-a
 	Closed     bool               // Zastavica da sprječimo dvostruko zatvaranje
 }
@@ -144,22 +144,22 @@ func (store *MemoryStore) AddShare(timestamp int64, meterID string, share uint64
 		log.Printf("[DEBUG] Bucket full for timestamp: %d", timestamp)
 		var expectedTotal uint64 = 0 // ПРОМЕЊЕНО: int64 у uint64
 		var overflowDetected bool = false
-		
+
 		for k, v := range session.Meters {
 			log.Printf("   -> Contains: %s = %d W", k, v)
-			
-			// Check for overflow: if adding v would exceed max uint64, flag it
+
+			// Check for overflow: if adding v would exceed max uint64, treat as modular wrap-around (expected for masked shares)
 			if expectedTotal > ^uint64(0)-v {
-				log.Printf("[SECURITY WARNING] Potential uint64 overflow detected for meter %s with value %d W", k, v)
+				log.Printf("[DEBUG] Modular wrap-around detected for meter %s with value %d W while summing for timestamp %d; interpreting sum modulo 2^64", k, v, timestamp)
 				overflowDetected = true
 			}
 			expectedTotal += v
 		}
-		
+
 		if overflowDetected {
-			log.Printf("[SECURITY AUDIT] Overflow detected in aggregation for timestamp %d; total may be corrupted", timestamp)
+			log.Printf("[DEBUG] Modular wrap-around detected in aggregation for timestamp %d; total computed modulo 2^64", timestamp)
 		}
-		
+
 		log.Printf("[DEBUG] Total sum being sent to MPC: %d W", expectedTotal)
 		log.Println("-------------------------------------------------")
 
@@ -261,8 +261,6 @@ func (store *MemoryStore) bucketTimeoutHandler(ctx context.Context, timestamp in
 	}
 }
 
-// ПРОМЕЊЕНО: параметар meters сада прима map[string]uint64 уместо map[string]int64
-// actualMeterCount je stvaran broj metar-a u bucket-u (može biti < MaxMeters ako je timeout istekao)
 func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]uint64, actualMeterCount int) error {
 	addr := fmt.Sprintf("mpc-node-%c:9000", 'a'+store.NodeID)
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
@@ -329,10 +327,4 @@ func (store *MemoryStore) sendToMPC(timestamp int64, meters map[string]uint64, a
 	for i := 0; i < zerosToPad; i++ {
 		buf.WriteString("0\n")
 	}
-
-	if _, err := conn.Write(buf.Bytes()); err != nil {
-		return fmt.Errorf("[MPC SEND] write to %s failed: %w", addr, err)
-	}
-
-	return nil
 }
