@@ -2,16 +2,13 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
-	"path/filepath"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -49,128 +46,34 @@ func main() {
 	)
 
 	mux := api.RegisterHandlers(verifyingKey, store, cfg)
-	httpAddress := ":" + cfg.Server.Port
-	srvHTTP := &http.Server{
-		Addr:         httpAddress,
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+
+	// Start server (mTLS if enabled, otherwise HTTP)
+	server, err := api.StartServer(ctx, mux, cfg)
+	if err != nil {
+		log.Fatalf("[FATAL] Failed to start server: %v", err)
 	}
 
-	// Setup mTLS listener on a separate port (configurable) if secrets are available
-	tlsAddress := ":" + cfg.Server.TLSPort
-	certPath := "/run/secrets/tls_server_cert"
-	keyPath := "/run/secrets/tls_server_key"
-	caPath := "/run/secrets/tls_ca_cert"
-
-	// Helper to resolve a secret path that may be a file, a directory (Docker behavior on some platforms),
-	// or exist with a .pem extension.
-	resolvePath := func(p string) (string, error) {
-		st, err := os.Stat(p)
-		if err == nil {
-			if st.IsDir() {
-				// pick first regular file inside directory
-				fns, err := ioutil.ReadDir(p)
-				if err != nil {
-					return "", err
-				}
-				for _, f := range fns {
-					if !f.IsDir() {
-						return p + "/" + f.Name(), nil
-					}
-				}
-				return "", fmt.Errorf("no file found in directory %s", p)
-			}
-			return p, nil
-		}
-		// try with .pem suffix
-		if _, err2 := os.Stat(p + ".pem"); err2 == nil {
-			return p + ".pem", nil
-		}
-		return "", err
-	}
-
-	var srvTLS *http.Server
-	if resolvedCert, err := resolvePath(certPath); err == nil {
-		resolvedKey, err := resolvePath(keyPath)
-		if err != nil {
-			log.Fatalf("[FATAL] Failed to resolve TLS key path: %v", err)
-		}
-
-		// Load server certificate
-		cert, err := tls.LoadX509KeyPair(resolvedCert, resolvedKey)
-		if err != nil {
-			log.Fatalf("[FATAL] Failed to load server TLS certificate: %v", err)
-		}
-
-		// Load CA pool for client certificate verification
-		resolvedCA, err := resolvePath(caPath)
-		if err != nil {
-			log.Fatalf("[FATAL] Failed to resolve CA path: %v", err)
-		}
-		caCert, err := ioutil.ReadFile(resolvedCA)
-		if err != nil {
-			log.Fatalf("[FATAL] Failed to read CA certificate: %v", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caCert) {
-			log.Fatalf("[FATAL] Failed to append CA certificate to pool")
-		}
-
-		tlsCfg := &tls.Config{
-			Certificates:             []tls.Certificate{cert},
-			ClientCAs:                pool,
-			ClientAuth:               tls.RequireAndVerifyClientCert,
-			MinVersion:               tls.VersionTLS12,
-			PreferServerCipherSuites: true,
-		}
-
-		srvTLS = &http.Server{
-			Addr:         tlsAddress,
-			Handler:      mux,
-			ReadTimeout:  15 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			IdleTimeout:  60 * time.Second,
-			TLSConfig:    tlsCfg,
-		}
-
-		go func() {
-			log.Printf("[SERVER] Listening (mTLS) on https://localhost%s", tlsAddress)
-			if err := srvTLS.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-				log.Fatalf("[FATAL] TLS server crashed: %v", err)
-			}
-		}()
-	} else {
-		log.Printf("[SERVER] mTLS disabled; TLS secrets not found, running HTTP-only")
-	}
-
-	// Always start HTTP server for external (non-mTLS) clients
-	go func() {
-		log.Printf("[SERVER] Listening on http://localhost%s", httpAddress)
-		if err := srvHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("[FATAL] HTTP server crashed: %v", err)
-		}
-	}()
-
-	// On shutdown, gracefully stop both servers
+	// On shutdown, gracefully stop the server
 	go func() {
 		<-ctx.Done()
-		log.Println("[SHUTDOWN] Signal received, shutting down servers gracefully...")
+		log.Println("[SHUTDOWN] Signal received, shutting down server gracefully...")
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		if err := srvHTTP.Shutdown(shutdownCtx); err != nil {
-			log.Printf("[ERROR] HTTP graceful shutdown failed: %v", err)
-		}
-		if srvTLS != nil {
-			if err := srvTLS.Shutdown(shutdownCtx); err != nil {
-				log.Printf("[ERROR] TLS graceful shutdown failed: %v", err)
+		if server != nil {
+			if err := server.Shutdown(shutdownCtx); err != nil {
+				log.Printf("[ERROR] Server graceful shutdown failed: %v", err)
 			}
 		}
-		log.Println("[SHUTDOWN] Servers stopped")
+		log.Println("[SHUTDOWN] Server stopped")
 	}()
+
+	// Block until context cancelled
+	<-ctx.Done()
+
+	// main exits after shutdown goroutine completes
+	log.Println("[EXIT] main exiting")
 
 	// Block until context cancelled
 	<-ctx.Done()

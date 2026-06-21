@@ -89,6 +89,10 @@ func HandleProof(verifyingKey groth16.VerifyingKey, store *MemoryStore, maxLimit
 			return
 		}
 
+		// Debug: log incoming payload fields to help diagnose large uint64 shares
+		log.Printf("[DEBUG-INCOMING] meter=%s ts=%d share=%d proof_len=%d commitment_len=%d remote=%s",
+			payload.MeterID, payload.Timestamp, payload.MeterShare, len(payload.Proof), len(payload.Commitment), r.RemoteAddr)
+
 		defer func() {
 			if err := r.Body.Close(); err != nil {
 				log.Printf("[WARNING] Failed to close request body for meter %s: %v", payload.MeterID, err)

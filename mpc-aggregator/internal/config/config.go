@@ -12,9 +12,13 @@ type AppConfig struct {
 	ClientCNToNode map[string]int `yaml:"client_cn_map"`
 
 	Server struct {
-		Port    string `yaml:"port" env:"SERVER_PORT" env-default:"8080"`
-		Name    string `yaml:"name" env:"SERVER_NAME" env-default:"MPC Node"`
-		TLSPort string `yaml:"tls_port" env:"TLS_PORT" env-default:"8443"`
+		Port           string `yaml:"port" env:"SERVER_PORT" env-default:"8080"`
+		Name           string `yaml:"name" env:"SERVER_NAME" env-default:"MPC Node"`
+		TLSPort        string `yaml:"tls_port" env:"TLS_PORT" env-default:"8443"`
+		EnableMTLS     bool   `yaml:"enable_mtls" env:"ENABLE_MTLS" env-default:"true"`
+		ServerCertPath string `yaml:"server_cert_path" env:"SERVER_CERT_PATH" env-default:"/run/secrets/server.crt"`
+		ServerKeyPath  string `yaml:"server_key_path" env:"SERVER_KEY_PATH" env-default:"/run/secrets/server.key"`
+		CACertPath     string `yaml:"ca_cert_path" env:"CA_CERT_PATH" env-default:"/run/secrets/ca.crt"`
 	} `yaml:"server"`
 
 	ZKP struct {

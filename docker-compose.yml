@@ -1,41 +1,27 @@
 version: '3.8'
 
 services:
-  # --- Certs generator (runs once at startup) ---
-  certs-init:
-    image: alpine:3.18
-    container_name: certs-init
-    restart: "no"
-    volumes:
-      - ./scripts:/scripts:ro
-      - ./secrets:/secrets
-    entrypoint: ["/bin/sh", "-c"]
-    command: "apk add --no-cache openssl ca-certificates >/dev/null 2>&1 && /scripts/generate_certs.sh --nodes 3 --keep-ca-key && echo 'certs generated' && sleep 1"
-
   # --- SERVER A (Node 0) ---
   server-a:
     build:
       context: ./mpc-aggregator
-      dockerfile: Dockerfile
     container_name: server-a
     ports:
-      - "8080:8080"
+      - "8080:8443"
     environment:
       - NODE_ID=0
       - PORT=8080
     volumes:
-      - ./secrets:/run/secrets:ro
+      - ./certs:/run/secrets:ro # Promenjeno u ./certs gde su tvoji rucni fajlovi
       - ./config.yaml:/app/config.yaml:ro
     networks:
       - mpc-network
-    depends_on:
-      - certs-init
-    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_server_cert.pem ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
+    # Ceka tvoj server.crt
+    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/server.crt ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
 
   mpc-node-a:
     build:
       context: ./mpc-engine
-      dockerfile: Dockerfile
       args:
         NUM_METERS: ${NUM_METERS:-10}
         NUM_PARTIES: ${NUM_PARTIES:-3}
@@ -43,19 +29,15 @@ services:
     environment:
       - NODE_ID=0
     volumes:
-      - ./secrets:/run/secrets:ro
+      - ./certs:/run/secrets:ro
     depends_on:
-      - certs-init
       - server-a
     networks:
       - mpc-network
-    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_client_cert.pem ] && [ ! -f /run/secrets/tls_client_cert_node0.pem ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
+    # Ceka client.crt
+    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/client.crt ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
     ports:
-      - "9000:9000"   # TCP receiver
-    expose:
-      - "5000"
-      - "5001"
-      - "5002"
+      - "9000:9000"
     tmpfs:
       - /tmp
 
@@ -63,93 +45,69 @@ services:
   server-b:
     build:
       context: ./mpc-aggregator
-      dockerfile: Dockerfile
     container_name: server-b
     ports:
-      - "8081:8080"
+      - "8081:8443"
     environment:
       - NODE_ID=1
       - PORT=8080
     volumes:
-      - ./secrets:/run/secrets:ro
+      - ./certs:/run/secrets:ro
       - ./config.yaml:/app/config.yaml:ro
     networks:
       - mpc-network
-    depends_on:
-      - certs-init
-    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_server_cert.pem ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
+    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/server.crt ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
 
   mpc-node-b:
     build:
       context: ./mpc-engine
-      dockerfile: Dockerfile
-      args:
-        NUM_METERS: ${NUM_METERS:-10}
-        NUM_PARTIES: ${NUM_PARTIES:-3}
     container_name: mpc-node-b
     environment:
       - NODE_ID=1
     volumes:
-      - ./secrets:/run/secrets:ro
+      - ./certs:/run/secrets:ro
     depends_on:
-      - certs-init
       - server-b
     networks:
       - mpc-network
-    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_client_cert.pem ] && [ ! -f /run/secrets/tls_client_cert_node1.pem ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
+    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/client.crt ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
     ports:
       - "9001:9000"
-    expose:
-      - "5000"
-      - "5001"
-      - "5002"
     tmpfs:
-      - /tmp   # added temporary filesystem
+      - /tmp
 
   # --- SERVER C (Node 2) ---
   server-c:
     build:
       context: ./mpc-aggregator
-      dockerfile: Dockerfile
     container_name: server-c
     ports:
-      - "8082:8080"
+      - "8082:8443"
     environment:
       - NODE_ID=2
       - PORT=8080
     volumes:
-      - ./secrets:/run/secrets:ro
+      - ./certs:/run/secrets:ro
       - ./config.yaml:/app/config.yaml:ro
     networks:
       - mpc-network
-    depends_on:
-      - certs-init
-    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_server_cert.pem ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
+    command: ["/bin/sh", "-c", "while [ ! -f /run/secrets/server.crt ]; do echo '[WAIT] waiting for TLS certs'; sleep 1; done; exec ./mpc-server"]
 
   mpc-node-c:
     build:
       context: ./mpc-engine
-      dockerfile: Dockerfile
-      args:
-        NUM_METERS: ${NUM_METERS:-10}
-        NUM_PARTIES: ${NUM_PARTIES:-3}
     container_name: mpc-node-c
     environment:
       - NODE_ID=2
     volumes:
-      - ./secrets:/run/secrets:ro
+      - ./certs:/run/secrets:ro
     depends_on:
-      - certs-init
       - server-c
     networks:
       - mpc-network
-    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/tls_client_cert.pem ] && [ ! -f /run/secrets/tls_client_cert_node2.pem ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
+    entrypoint: ["/bin/sh", "-c", "while [ ! -f /run/secrets/client.crt ]; do echo '[WAIT] waiting for client cert'; sleep 1; done; exec ./entrypoint.sh"]
     ports:
       - "9002:9000"
-    expose:
-      - "5000"
-      - "5001"
-      - "5002"
     tmpfs:
       - /tmp
 

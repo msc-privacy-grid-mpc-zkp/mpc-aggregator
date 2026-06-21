@@ -3,6 +3,10 @@
 server:
   port: "8080"
   name: "MPC Node"
+  enable_mtls: true
+  server_cert_path: "/run/secrets/server.crt"
+  server_key_path: "/run/secrets/server.key"
+  ca_cert_path: "/run/secrets/ca.crt"
 
 zkp:
   key_path: "keys/verifying.key"
@@ -16,6 +20,7 @@ aggregator:
 
 # Map client certificate CommonName (CN) to NodeID.
 client_cn_map:
+  SimulatorClient: 0  # <--- Dodaj ovo, ovo je ime iz nase bash skripte
   mpc-client-node0: 0
   mpc-client-node1: 1
   mpc-client-node2: 2

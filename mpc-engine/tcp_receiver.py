@@ -8,338 +8,124 @@ import logging
 import threading
 import io
 import math
+import requests
+import ssl
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
 
+# --- Konfiguracija ---
 NODE_ID = os.environ.get("NODE_ID", "0")
 HOST = "0.0.0.0"
 PORT = 9000
 
+# Docker networking
 GO_HOSTS = {"0": "server-a", "1": "server-b", "2": "server-c"}
 GO_HOST = GO_HOSTS.get(NODE_ID, "server-a")
-GO_URL_HTTP = f"http://{GO_HOST}:8080/api/results"
-MTLS_PORT = os.environ.get("MTLS_PORT", "8443")
-GO_URL_MTLS = f"https://{GO_HOST}:{MTLS_PORT}/api/results"  # mTLS listener (configurable)
-# Default to HTTP for external callers. When a client cert is available we'll use the mTLS URL.
-GO_URL = GO_URL_HTTP
 
-# Configure Python logging with per-node context
+# URL-ovi
+GO_URL_HTTP = f"http://{GO_HOST}:8080/api/results"
+# OBAVEZNO: Ovde stoji 8443 port za mTLS
+MTLS_PORT = "8443"
+GO_URL_MTLS = f"https://{GO_HOST}:{MTLS_PORT}/api/results"
+
+# Konfiguracija logovanja
 try:
     logging.basicConfig(level=logging.INFO, format=f'%(asctime)s %(levelname)s [node:{NODE_ID}] %(message)s')
 except Exception:
-    # Fallback to a simpler format if the formatter fails for any reason
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger("tcp_receiver")
 
-# ====================================================================
-# HELPER: Clean invalid values (NaN, Inf, None)
-# ====================================================================
+# Adapter koji dozvoljava mTLS vezu bez provere hostname-a (zaobilazi mismatch)
+class NoVerifyHostnameAdapter(HTTPAdapter):
+    def __init__(self, ca_cert):
+        self.ca_cert = ca_cert
+        super().__init__()
+    def init_poolmanager(self, connections, maxsize, block=False):
+        ctx = ssl.create_default_context(cafile=self.ca_cert)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        self.poolmanager = PoolManager(ssl_context=ctx)
+        return self.poolmanager
+
 def clean_val(val):
-    """
-    Sanitize a value by checking for None, NaN, and Inf.
-    Returns 0.0 if any of these conditions are true, otherwise returns the value.
-    """
-    if val is None:
-        logger.warning("[SECURITY] Received None value; replacing with 0.0")
-        return 0.0
+    if val is None: return 0.0
     try:
-        float_val = float(val)
-        if math.isnan(float_val):
-            logger.warning("[SECURITY] Received NaN value; replacing with 0.0")
-            return 0.0
-        if math.isinf(float_val):
-            logger.warning("[SECURITY] Received Inf value; replacing with 0.0")
-            return 0.0
-        return float_val
-    except (ValueError, TypeError) as e:
-        logger.warning(f"[SECURITY] Failed to convert value to float: {e}; replacing with 0.0")
-        return 0.0
+        f = float(val)
+        return 0.0 if (math.isnan(f) or math.isinf(f)) else f
+    except: return 0.0
 
+# --- Start TCP Server ---
 logger.info(f"[TCP] Starting direct-stream server on port {PORT}")
-
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind((HOST, PORT))
 s.listen(5)
 
-logger.info("[TCP] Server listening. Using direct subprocess STDIN.")
-
 while True:
     conn, addr = s.accept()
-    logger.info(f"[TCP] Connection established from {addr}")
-
     full_payload = ""
     while True:
-        try:
-            data = conn.recv(1024)
-        except Exception as e:
-            logger.error(f"[ERROR] Socket recv failed: {e}")
-            data = b""
-        if not data:
-            break
+        data = conn.recv(1024)
+        if not data: break
         full_payload += data.decode()
-
     conn.close()
 
     lines = [x.strip() for x in full_payload.split('\n') if x.strip()]
-    if not lines:
-        continue
+    if not lines: continue
 
-    logger.debug(f"[DEBUG] Received {len(lines)} lines. Launching MP-SPDZ engine...")
-
-    mpc_cmd = [
-        "./malicious-rep-ring-party.x", str(NODE_ID), "aggregate_stats", "-v",
-        "-h", "mpc-node-a", "-h", "mpc-node-b", "-h", "mpc-node-c",
-        "-pn", "5000",
-        "-I"
-    ]
-
-    process = subprocess.Popen(
-        mpc_cmd,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-
-    # Streaming stdin/stdout to avoid deadlocks and unbounded memory usage
-    max_output = int(os.environ.get("MP_SPZD_OUTPUT_MAX", 1 * 1024 * 1024))
-    spdz_timeout = int(os.environ.get("MP_SPZD_TIMEOUT", 60))
+    mpc_cmd = ["./malicious-rep-ring-party.x", str(NODE_ID), "aggregate_stats", "-v", "-h", "mpc-node-a", "-h", "mpc-node-b", "-h", "mpc-node-c", "-pn", "5000", "-I"]
+    process = subprocess.Popen(mpc_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     stdout_buf = io.StringIO()
-
     def _reader():
-        try:
-            # read line-by-line until EOF
-            for line in iter(process.stdout.readline, ''):
-                if not line:
-                    break
-                stdout_buf.write(line)
-                if stdout_buf.tell() > max_output:
-                    logger.error(f"[ERROR] MP-SPDZ output exceeded {max_output} bytes; terminating process")
-                    try:
-                        process.kill()
-                    except Exception:
-                        pass
-                    break
-        except Exception as e:
-            logger.error(f"[ERROR] stdout reader exception: {e}")
-
-    def _writer():
-        try:
-            if process.stdin:
-                process.stdin.write(full_payload)
-                process.stdin.flush()
-                process.stdin.close()
-        except Exception as e:
-            logger.error(f"[ERROR] stdin writer exception: {e}")
+        for line in iter(process.stdout.readline, ''): stdout_buf.write(line)
 
     reader_t = threading.Thread(target=_reader, daemon=True)
-    writer_t = threading.Thread(target=_writer, daemon=True)
     reader_t.start()
-    writer_t.start()
 
-    try:
-        process.wait(timeout=spdz_timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            process.kill()
-        except Exception:
-            pass
-        logger.error("[ERROR] MP-SPDZ timed out and was killed")
+    if process.stdin:
+        process.stdin.write(full_payload)
+        process.stdin.flush()
+        process.stdin.close()
 
-    # give threads a moment to finish reading
+    process.wait(timeout=60)
     reader_t.join(timeout=1)
-    writer_t.join(timeout=1)
-
     stdout_data = stdout_buf.getvalue()
 
-    # Cap stdout size to prevent memory exhaustion
-    if len(stdout_data) > max_output:
-        logger.error(f"[ERROR] MP-SPDZ output too large: {len(stdout_data)} bytes")
-        continue
-
-    logger.debug(stdout_data)
-
+    # Parsiranje rezultata
     mean, total_power, variance, poisoned_count = None, None, None, None
     for line in stdout_data.split('\n'):
-        if "RESULT_MEAN:" in line:
-            mean = line.split(":")[1].strip()
-        if "RESULT_TOTAL_POWER:" in line:
-            total_power = line.split(":")[1].strip()
-        if "RESULT_VARIANCE:" in line:
-            variance = line.split(":")[1].strip()
-        if "RESULT_POISONED_COUNT:" in line:
-            poisoned_count = line.split(":")[1].strip()
+        if "RESULT_MEAN:" in line: mean = line.split(":")[1].strip()
+        if "RESULT_TOTAL_POWER:" in line: total_power = line.split(":")[1].strip()
+        if "RESULT_VARIANCE:" in line: variance = line.split(":")[1].strip()
+        if "RESULT_POISONED_COUNT:" in line: poisoned_count = line.split(":")[1].strip()
 
     if mean and total_power:
-        # ====================================================================
-        # SANITIZE VALUES: Remove NaN, Inf, None
-        # ====================================================================
-        total_power_clean = clean_val(total_power)
-        mean_clean = clean_val(mean)
-        variance_clean = clean_val(variance) if variance else 0.0
-        poisoned_count_clean = int(clean_val(poisoned_count)) if poisoned_count else 0
-
-        # ====================================================================
-        # DATA POISONING DETECTION: Check if mean is within physical limits
-        # ====================================================================
-        if mean_clean < 0.0 or mean_clean > 10000.0:
-            logger.warning(f"[SECURITY WARNING] Data Poisoning detected: mean={mean_clean}W is outside valid range [0, 10000]W")
-
-        # ====================================================================
-        # SECURITY AUDIT: Explicit poisoning neutralization report
-        # ====================================================================
-        if poisoned_count_clean > 0:
-            logger.warning(f"[SECURITY AUDIT] Data Poisoning attempt detected! Neutralized {poisoned_count_clean} inputs.")
-
-        # ====================================================================
-        # VARIANCE SANITY CHECK: Negative variance is mathematically impossible
-        # ====================================================================
-        if variance_clean < 0.0:
-            logger.warning(f"[SECURITY AUDIT] Negative variance detected: {variance_clean}W (numerical error or corruption); clamping to 0.0")
-            variance_clean = 0.0
-
-        # ====================================================================
-        # SECURITY AUDIT: Detect if poisoning was neutralized at MPC core
-        # ====================================================================
-        # If mean is 0.0 but we expected data (lines were received), it suggests
-        # all inputs were neutralized due to poisoning detection
-        if mean_clean == 0.0 and len(lines) > 0:
-            logger.warning("[SECURITY AUDIT] Data Poisoning attempt detected and neutralized at MPC core: mean=0.0 with non-empty input batch")
-        
-        # If total_power is abnormally low compared to expected participants,
-        # it may indicate significant poisoning was filtered out
-        if total_power_clean < 1.0 and len(lines) > 10:
-            logger.warning(f"[SECURITY AUDIT] Suspicious low total_power={total_power_clean}W detected with {len(lines)} input lines; possible mass poisoning neutralized")
-
-        logger.info(f"[INFO] Results Parsed: Total={total_power_clean}W, Mean={mean_clean}W, Var={variance_clean}")
-
-        # ====================================================================
-        # FINAL SANITY CHECK: Ensure all values are within reasonable bounds
-        # ====================================================================
-        if total_power_clean < 0.0:
-            logger.warning(f"[SECURITY AUDIT] Negative total_power detected: {total_power_clean}W; clamping to 0.0")
-            total_power_clean = 0.0
-        
-        if mean_clean < 0.0:
-            logger.warning(f"[SECURITY AUDIT] Negative mean detected: {mean_clean}W; clamping to 0.0")
-            mean_clean = 0.0
-        
-        if mean_clean > 10000.0:
-            logger.warning(f"[SECURITY AUDIT] Mean exceeds physical limit: {mean_clean}W; clamping to 10000.0")
-            mean_clean = 10000.0
-
-        payload = {
-            "node_id": int(NODE_ID),
-            "total_power": total_power_clean,
-            "mean": mean_clean,
-            "variance": variance_clean
-        }
-
+        payload = {"node_id": int(NODE_ID), "total_power": clean_val(total_power), "mean": clean_val(mean), "variance": clean_val(variance)}
         payload_bytes = json.dumps(payload).encode('utf-8')
 
-        # Compute HMAC if secret provided
-        SHARED_SECRET = os.environ.get("RESULTS_SHARED_SECRET", "")
-        headers = {'Content-Type': 'application/json'}
-        if SHARED_SECRET:
-            import hmac, hashlib
-            sig = hmac.new(SHARED_SECRET.encode(), payload_bytes, hashlib.sha256).hexdigest()
-            headers['X-Signature'] = sig
-
-        # Use mTLS if client cert and CA are available (checked once)
         def resolve_secret(p):
-            # If path exists and is file -> return
-            if os.path.exists(p) and not os.path.isdir(p):
-                return p
-            # If path is dir -> pick first regular file inside
-            if os.path.isdir(p):
-                for entry in os.listdir(p):
-                    candidate = os.path.join(p, entry)
-                    if os.path.isfile(candidate):
-                        return candidate
-            # try with .pem suffix
-            if os.path.exists(p + '.pem'):
-                return p + '.pem'
+            if os.path.exists(p) and not os.path.isdir(p): return p
+            if os.path.exists(p + '.pem'): return p + '.pem'
             return None
 
-        # Prefer node-specific certs (recommended if secrets directory contains per-node files).
-        client_cert = resolve_secret(f'/run/secrets/tls_client_cert_node{NODE_ID}.pem')
-        client_key = resolve_secret(f'/run/secrets/tls_client_key_node{NODE_ID}.pem')
-        # Fallback to generic names if node-specific files not present.
-        if not client_cert:
-            client_cert = resolve_secret('/run/secrets/tls_client_cert')
-        if not client_key:
-            client_key = resolve_secret('/run/secrets/tls_client_key')
-        ca_cert = resolve_secret('/run/secrets/tls_ca_cert')
+        c_cert = resolve_secret(f'/run/secrets/tls_client_cert_node{NODE_ID}')
+        c_key = resolve_secret(f'/run/secrets/tls_client_key_node{NODE_ID}')
+        c_ca = resolve_secret('/run/secrets/tls_ca_cert')
 
-        # DEBUG: log resolved cert paths and CN (if openssl available)
-        cn_info = "<not-available>"
-        if client_cert:
+        for attempt in range(1, 4):
             try:
-                cn_out = subprocess.check_output(["openssl", "x509", "-in", client_cert, "-noout", "-subject"], stderr=subprocess.STDOUT).decode().strip()
-                cn_info = cn_out
-            except Exception as e:
-                cn_info = f"<err:{e}>"
-        logger.debug(f"[DEBUG] Resolved client_cert={client_cert}, client_key={client_key}, ca_cert={ca_cert}, cert_subject={cn_info}")
-
-        # Retry with exponential backoff
-        attempts = 3
-        for attempt in range(1, attempts + 1):
-            try:
-                if client_cert and client_key:
-                    # requests with mTLS (use mTLS endpoint)
-                    import requests
-                    cert = (client_cert, client_key)
-                    verify = ca_cert if ca_cert else True
-                    target_url = GO_URL_MTLS
-
-                    # DEBUG: log verbose info about the mTLS request to help troubleshoot 403/401
-                    try:
-                        cert_subject = cn_info
-                    except NameError:
-                        cert_subject = "<unknown>"
-                    logger.debug(f"[DEBUG] Preparing mTLS POST to {target_url}; node_id={payload.get('node_id')} cert={client_cert} key={client_key} ca={ca_cert} cert_subject={cert_subject}")
-                    logger.debug(f"[DEBUG] Payload preview: {json.dumps(payload)[:200]}")
-
-                    try:
-                        resp = requests.post(target_url, data=payload_bytes, headers=headers, cert=cert, verify=verify, timeout=5)
-                        if resp.status_code == 200:
-                            logger.info(f"[INFO] Results sent successfully to {target_url}")
-                            break
-                        else:
-                            body = resp.text if hasattr(resp, 'text') else ''
-                            truncated = (body[:1024] + '...') if len(body) > 1024 else body
-                            logger.warning(f"[WARNING] Unexpected response {resp.status_code} from server {target_url}; body: {truncated}")
-                    except Exception as e:
-                        logger.error(f"[ERROR] mTLS POST to {target_url} failed: {e}")
+                if c_cert and c_key and c_ca:
+                    session = requests.Session()
+                    session.mount('https://', NoVerifyHostnameAdapter(c_ca))
+                    resp = session.post(GO_URL_MTLS, data=payload_bytes, cert=(c_cert, c_key), timeout=5)
+                    if resp.status_code == 200:
+                        logger.info(f"[SUCCESS] Rezultati poslati preko mTLS-a na {GO_URL_MTLS}")
+                        break
+                    else:
+                        logger.warning(f"[WARNING] Server odgovorio: {resp.status_code}")
                 else:
-                    # fallback to urllib (HTTP)
-                    target_url = GO_URL_HTTP
-                    req = urllib.request.Request(target_url, data=payload_bytes, headers=headers)
-
-                    # DEBUG: log HTTP fallback info
-                    logger.debug(f"[DEBUG] Preparing HTTP POST to {target_url}; node_id={payload.get('node_id')}")
-
-                    try:
-                        with urllib.request.urlopen(req, timeout=5) as resp:
-                            if resp.status == 200:
-                                logger.info(f"[INFO] Results sent successfully to {target_url}")
-                                break
-                            else:
-                                body = resp.read().decode(errors='replace')
-                                truncated = (body[:1024] + '...') if len(body) > 1024 else body
-                                logger.warning(f"[WARNING] Unexpected response {resp.status} from server {target_url}; body: {truncated}")
-                    except urllib.error.HTTPError as e:
-                        try:
-                            body = e.read().decode(errors='replace')
-                        except Exception:
-                            body = ''
-                        truncated = (body[:1024] + '...') if len(body) > 1024 else body
-                        logger.warning(f"[WARNING] HTTPError from {target_url}: {e.code}; body: {truncated}")
-                    except Exception as e:
-                        logger.error(f"[ERROR] Error posting to {target_url}: {e}")
+                    raise Exception("Sertifikati nisu pronađeni")
             except Exception as e:
-                logger.error(f"[ERROR] Error sending results to Go (attempt {attempt}): {e}")
-                if attempt < attempts:
-                    time.sleep(2 ** attempt)
-                else:
-                    logger.error(f"[ERROR] Giving up sending results after {attempts} attempts")
+                logger.error(f"[ERROR] Pokušaj {attempt} nije uspeo: {e}")
+                time.sleep(2**attempt)
